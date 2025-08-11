@@ -1,11 +1,11 @@
+// server.js
 const express = require('express');
-const mongoose = require('mongoose');
 const dotenv = require('dotenv');
 const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
 
-// Routes…
+// Routes
 const authRoutes = require('./routes/authRoutes');
 const parentRoutes = require('./routes/parentRoutes');
 const schoolRoutes = require('./routes/schoolRoutes');
@@ -16,38 +16,72 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 
-// ---- CORS origins from env (comma-separated) ----
+// ---------------------------
+// CORS (read from env)
+// ---------------------------
+// Set in Railway → Variables, e.g.:
+// ALLOWED_ORIGINS=https://gleaming-mandazi-ccf976.netlify.app,http://localhost:3000
 const allowed = (process.env.ALLOWED_ORIGINS || '')
   .split(',')
   .map(s => s.trim())
   .filter(Boolean);
 
-// ---- Express middleware ----
-app.use(cors({
-  origin: allowed.length ? allowed : true,
-  credentials: true
-}));
+// Express CORS options (handles preflight)
+const corsOptions = {
+  origin(origin, cb) {
+    // allow non-browser clients (no Origin header)
+    if (!origin) return cb(null, true);
+    return allowed.includes(origin)
+      ? cb(null, true)
+      : cb(new Error('Not allowed by CORS'));
+  },
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+  optionsSuccessStatus: 204,
+};
+
+// Apply CORS before any routes/middleware
+app.use(cors(corsOptions));
+// Ensure all preflights get a quick OK
+app.options('*', cors(corsOptions));
+
+// Body parser
 app.use(express.json());
 
-// ---- DB connection ----
+// ---------------------------
+// DB connection
+// ---------------------------
 require('./config/db')();
 
-// ---- health (after app is defined) ----
+// ---------------------------
+// Health check
+// ---------------------------
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
-// ---- API routes ----
+// ---------------------------
+// API routes
+// ---------------------------
 app.use('/api/auth', authRoutes);
 app.use('/api/parent', parentRoutes);
 app.use('/api/school', schoolRoutes);
 app.use('/api/driver', driverRoutes);
 
-// ---- Socket.IO (share the same allowed origins) ----
+// ---------------------------
+// Socket.IO (same CORS policy)
+// ---------------------------
 const io = new Server(server, {
   cors: {
-    origin: allowed.length ? allowed : true,
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true);
+      return allowed.includes(origin)
+        ? cb(null, true)
+        : cb(new Error('Not allowed by CORS'));
+    },
     methods: ['GET', 'POST'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
-  }
+  },
 });
 
 io.on('connection', (socket) => {
@@ -75,5 +109,8 @@ io.on('connection', (socket) => {
   });
 });
 
+// ---------------------------
+// Start server
+// ---------------------------
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, '0.0.0.0', () => console.log(`Server running on ${PORT}`));
