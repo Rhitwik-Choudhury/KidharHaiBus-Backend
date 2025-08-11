@@ -10,7 +10,6 @@ const authRoutes = require('./routes/authRoutes');
 const parentRoutes = require('./routes/parentRoutes');
 const schoolRoutes = require('./routes/schoolRoutes');
 const driverRoutes = require('./routes/driverRoutes');
-app.get('/health', (_req, res) => res.json({ ok: true }));
 
 dotenv.config();
 
@@ -25,13 +24,16 @@ const allowed = (process.env.ALLOWED_ORIGINS || '')
 
 // ---- Express middleware ----
 app.use(cors({
-  origin: allowed.length ? allowed : true,   // allow all in dev if empty
+  origin: allowed.length ? allowed : true,
   credentials: true
 }));
 app.use(express.json());
 
 // ---- DB connection ----
 require('./config/db')();
+
+// ---- health (after app is defined) ----
+app.get('/health', (_req, res) => res.json({ ok: true }));
 
 // ---- API routes ----
 app.use('/api/auth', authRoutes);
