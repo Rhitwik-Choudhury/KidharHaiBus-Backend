@@ -45,6 +45,7 @@ const corsOptions = {
 app.use(cors(corsOptions));
 // Ensure all preflights get a quick OK
 app.options('*', cors(corsOptions));
+app.options('/socket.io/*', cors(corsOptions));
 
 // Body parser
 app.use(express.json());
@@ -71,17 +72,21 @@ app.use('/api/driver', driverRoutes);
 // Socket.IO (same CORS policy)
 // ---------------------------
 const io = new Server(server, {
+  path: '/socket.io', // explicit (default is this, but let's be clear)
   cors: {
-    origin: (origin, cb) => {
-      if (!origin) return cb(null, true);
-      return allowed.includes(origin)
-        ? cb(null, true)
-        : cb(new Error('Not allowed by CORS'));
-    },
+    origin: allowed,               // <-- array from ALLOWED_ORIGINS
     methods: ['GET', 'POST'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
   },
+});
+
+// (optional) log connection errors to see details in Railway logs
+io.engine.on('connection_error', (err) => {
+  console.log('⚠️ socket.io connection error:', {
+    code: err.code,
+    message: err.message,
+    context: err.context,
+  });
 });
 
 io.on('connection', (socket) => {
