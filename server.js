@@ -5,7 +5,7 @@ const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
 
-// Routes
+// Routes…
 const authRoutes = require('./routes/authRoutes');
 const parentRoutes = require('./routes/parentRoutes');
 const schoolRoutes = require('./routes/schoolRoutes');
@@ -17,23 +17,18 @@ const app = express();
 const server = http.createServer(app);
 
 // ---------------------------
-// CORS (read from env)
+// CORS (read allowed origins from env)
+// Railway -> ALLOWED_ORIGINS= https://gleaming-mandazi-ccf976.netlify.app,http://localhost:3000
 // ---------------------------
-// Set in Railway → Variables, e.g.:
-// ALLOWED_ORIGINS=https://gleaming-mandazi-ccf976.netlify.app,http://localhost:3000
 const allowed = (process.env.ALLOWED_ORIGINS || '')
   .split(',')
   .map(s => s.trim())
   .filter(Boolean);
 
-// Express CORS options (handles preflight)
 const corsOptions = {
-  origin(origin, cb) {
-    // allow non-browser clients (no Origin header)
-    if (!origin) return cb(null, true);
-    return allowed.includes(origin)
-      ? cb(null, true)
-      : cb(new Error('Not allowed by CORS'));
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true);                // allow curl/postman (no Origin)
+    return allowed.includes(origin) ? cb(null, true) : cb(new Error('Not allowed by CORS'));
   },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -41,13 +36,11 @@ const corsOptions = {
   optionsSuccessStatus: 204,
 };
 
-// Apply CORS before any routes/middleware
 app.use(cors(corsOptions));
-// Ensure all preflights get a quick OK
-app.options('*', cors(corsOptions));
-app.options('/socket.io/*', cors(corsOptions));
+// Preflight for API & socket endpoints (REGEX to avoid '*' issues)
+app.options(/^\/api\/.*/, cors(corsOptions));
+app.options(/^\/socket\.io\/.*/, cors(corsOptions));
 
-// Body parser
 app.use(express.json());
 
 // ---------------------------
@@ -56,7 +49,7 @@ app.use(express.json());
 require('./config/db')();
 
 // ---------------------------
-// Health check
+// Health
 // ---------------------------
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
@@ -72,15 +65,15 @@ app.use('/api/driver', driverRoutes);
 // Socket.IO (same CORS policy)
 // ---------------------------
 const io = new Server(server, {
-  path: '/socket.io', // explicit (default is this, but let's be clear)
+  path: '/socket.io', // explicit (default)
   cors: {
-    origin: allowed,               // <-- array from ALLOWED_ORIGINS
+    origin: allowed,                 // array of allowed origins
     methods: ['GET', 'POST'],
     credentials: true,
   },
 });
 
-// (optional) log connection errors to see details in Railway logs
+// optional: log handshake errors in Railway logs
 io.engine.on('connection_error', (err) => {
   console.log('⚠️ socket.io connection error:', {
     code: err.code,
@@ -90,22 +83,20 @@ io.engine.on('connection_error', (err) => {
 });
 
 io.on('connection', (socket) => {
-  console.log('🚐 Driver/Client connected:', socket.id);
+  console.log('🚐 Client connected:', socket.id);
 
   socket.on('driverLocation', (data) => {
-    console.log('📍 Location received from driver:', data);
+    console.log('📍 driverLocation:', data);
     socket.broadcast.emit('locationUpdate', data);
   });
 
   socket.on('trip:start', (payload = {}) => {
     const message = { status: 'started', at: Date.now(), ...payload };
-    console.log('▶️ Trip started:', message);
     io.emit('tripStatus', message);
   });
 
   socket.on('trip:end', (payload = {}) => {
     const message = { status: 'ended', at: Date.now(), ...payload };
-    console.log('⏹️ Trip ended:', message);
     io.emit('tripStatus', message);
   });
 
