@@ -1,9 +1,12 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
 const parentSchema = new mongoose.Schema(
   {
-    // We accept "name" from the client, but we store it here as fullName
-    fullName: { type: String, required: true },
+    fullName: {
+      type: String,
+      required: true,
+      trim: true,
+    },
 
     email: {
       type: String,
@@ -13,17 +16,43 @@ const parentSchema = new mongoose.Schema(
       trim: true,
     },
 
-    password: { type: String, required: true },
+    password: {
+      type: String,
+      required: true,
+    },
 
-    // ⚠️ Make optional AND sparse so multiple nulls won't violate a unique index
-    // Or just drop "unique" entirely if you don’t need it now.
-    mobileNumber: { type: String, unique: true, sparse: true, default: null },
+    mobileNumber: {
+      type: String,
+      unique: true,
+      sparse: true,
+      default: null,
+      trim: true,
+    },
 
-    // MVP helpers
-    studentCode: { type: String, default: null },
-    children: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Student' }],
+    // Optional but useful for safer filtering by school
+    schoolId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "School",
+      default: null,
+      index: true,
+    },
+
+    // Parent can sign up using student code
+    studentCode: {
+      type: String,
+      default: null,
+      trim: true,
+    },
+
+    // Parent can have one or more children
+    children: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Student",
+      },
+    ],
   },
   { timestamps: true }
 );
 
-module.exports = mongoose.model('Parent', parentSchema);
+module.exports = mongoose.model("Parent", parentSchema);

@@ -1,139 +1,319 @@
-// server.js
-const express = require('express');
-const dotenv = require('dotenv');
-const cors = require('cors');
-const http = require('http');
-const { Server } = require('socket.io');
+const express = require("express");
+const dotenv = require("dotenv");
+const cors = require("cors");
+const http = require("http");
+const { Server } = require("socket.io");
 
-// Routes…
-const authRoutes = require('./routes/authRoutes');
-const parentRoutes = require('./routes/parentRoutes');
-const schoolRoutes = require('./routes/schoolRoutes');
-const driverRoutes = require('./routes/driverRoutes');
-const contactRoutes = require('./routes/contactRoutes'); // <-- ADD
+const Driver = require("./models/Driver");
+const Bus = require("./models/Bus");
 
+// ---------------------------
+// Load ENV FIRST
+// ---------------------------
 dotenv.config();
 
+// ---------------------------
+// Create APP FIRST
+// ---------------------------
 const app = express();
 const server = http.createServer(app);
 
 // ---------------------------
-// CORS (env-driven allowlist + sensible dev defaults)
-// Railway -> ALLOWED_ORIGINS=https://gleaming-mandazi-ccf976.netlify.app,http://localhost:5173,http://localhost:3000
+// Routes IMPORT
+// ---------------------------
+const authRoutes = require("./routes/authRoutes");
+const parentRoutes = require("./routes/parentRoutes");
+const schoolRoutes = require("./routes/schoolRoutes");
+const driverRoutes = require("./routes/driverRoutes");
+const contactRoutes = require("./routes/contactRoutes");
+const studentRoutes = require("./routes/studentRoutes");
+const busRoutes = require("./routes/busRoutes");
+
+// ---------------------------
+// CORS setup
 // ---------------------------
 const defaultAllowed = [
-  'http://localhost:5173',
-  'http://127.0.0.1:5173',
-  'http://localhost:3000',
-  'http://127.0.0.1:3000',
-  process.env.CLIENT_URL, // e.g., https://kidharhaibus.app
-  'https://gleaming-mandazi-ccf976.netlify.app'
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+  process.env.CLIENT_URL,
+  "https://gleaming-mandazi-ccf976.netlify.app",
 ].filter(Boolean);
 
-const envAllowed = (process.env.ALLOWED_ORIGINS || '')
-  .split(',')
-  .map(s => s.trim())
+const envAllowed = (process.env.ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((s) => s.trim())
   .filter(Boolean);
 
 const allowed = Array.from(new Set([...defaultAllowed, ...envAllowed]));
 
 function logOrigin(origin) {
-  if (origin) console.log('[CORS] request origin:', origin);
-  else console.log('[CORS] request origin: <none/null> (Postman/native app?)');
+  if (origin) console.log("[CORS] request origin:", origin);
+  else console.log("[CORS] request origin: <none/null>");
 }
 
 const corsOptions = {
   origin: (origin, cb) => {
     logOrigin(origin);
-    if (!origin) return cb(null, true);            // allow curl/Postman/native apps
+    if (!origin) return cb(null, true);
     if (allowed.includes(origin)) return cb(null, true);
     console.error(`[CORS] Not allowed by CORS: ${origin}`);
-    return cb(new Error('Not allowed by CORS'));
+    return cb(new Error("Not allowed by CORS"));
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  exposedHeaders: ['set-cookie'],
-  optionsSuccessStatus: 204
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  optionsSuccessStatus: 204,
 };
 
-// behind proxy (Railway/Netlify) for secure cookies, real IPs
-app.set('trust proxy', 1);
+app.set("trust proxy", 1);
 
-// CORS must be before routes
+// Apply CORS BEFORE routes
 app.use(cors(corsOptions));
-
-// Preflight (use regex paths; avoid bare "*" which breaks path-to-regexp)
 app.options(/^\/api\/.*/, cors(corsOptions));
 app.options(/^\/socket\.io\/.*/, cors(corsOptions));
 
 app.use(express.json());
 
 // ---------------------------
-// DB connection
+// Attach io to req for REST controllers
 // ---------------------------
-require('./config/db')();
+app.use((req, _res, next) => {
+  req.io = io;
+  next();
+});
 
 // ---------------------------
-// Health
+// DB connection
 // ---------------------------
-app.get('/health', (_req, res) => res.json({ ok: true }));
+require("./config/db")();
+
+// ---------------------------
+// Health route
+// ---------------------------
+app.get("/health", (_req, res) => res.json({ ok: true }));
 
 // ---------------------------
 // API routes
 // ---------------------------
-app.use('/api/auth', authRoutes);
-app.use('/api/parent', parentRoutes);
-app.use('/api/school', schoolRoutes);
-app.use('/api/driver', driverRoutes);
-app.use('/api/contact', contactRoutes); // <-- ADD (supports POST /api/contact and /api/contact/send if coded)
+app.use("/api/auth", authRoutes);
+app.use("/api/parent", parentRoutes);
+app.use("/api/school", schoolRoutes);
+app.use("/api/driver", driverRoutes);
+app.use("/api/contact", contactRoutes);
+app.use("/api/students", studentRoutes);
+app.use("/api/buses", busRoutes);
 
 // ---------------------------
-// Socket.IO (mirror CORS policy)
+// Socket.IO
 // ---------------------------
 const io = new Server(server, {
-  path: '/socket.io',
+  path: "/socket.io",
   cors: {
     origin: (origin, cb) => {
       logOrigin(origin);
       if (!origin) return cb(null, true);
       if (allowed.includes(origin)) return cb(null, true);
       console.error(`[Socket.IO CORS] Not allowed: ${origin}`);
-      return cb(new Error('Not allowed by CORS'));
+      return cb(new Error("Not allowed by CORS"));
     },
-    methods: ['GET', 'POST'],
-    credentials: true
-  }
+    methods: ["GET", "POST"],
+    credentials: true,
+  },
 });
 
-io.engine.on('connection_error', (err) => {
-  console.log('⚠️ socket.io connection error:', {
-    code: err.code,
-    message: err.message,
-    context: err.context
-  });
-});
+io.on("connection", (socket) => {
+  console.log("🚐 Client connected:", socket.id);
 
-io.on('connection', (socket) => {
-  console.log('🚐 Client connected:', socket.id);
-
-  socket.on('driverLocation', (data) => {
-    console.log('📍 driverLocation:', data);
-    socket.broadcast.emit('locationUpdate', data);
+  // ---------------------------
+  // Parent / client joins their bus room
+  // Example room: bus_<busId>
+  // ---------------------------
+  socket.on("joinBusRoom", ({ busId }) => {
+    if (!busId) return;
+    socket.join(`bus_${busId}`);
+    console.log(`Socket ${socket.id} joined room bus_${busId}`);
   });
 
-  socket.on('trip:start', (payload = {}) => {
-    const message = { status: 'started', at: Date.now(), ...payload };
-    io.emit('tripStatus', message);
+  socket.on("leaveBusRoom", ({ busId }) => {
+    if (!busId) return;
+    socket.leave(`bus_${busId}`);
+    console.log(`Socket ${socket.id} left room bus_${busId}`);
   });
 
-  socket.on('trip:end', (payload = {}) => {
-    const message = { status: 'ended', at: Date.now(), ...payload };
-    io.emit('tripStatus', message);
+  // ---------------------------
+  // Driver sends live location
+  // This now updates ONLY the assigned bus room
+  // ---------------------------
+  socket.on("driverLocation", async (data = {}) => {
+    try {
+      const { driverId, busId, lat, lng } = data;
+
+      if (!driverId || !busId || lat === undefined || lng === undefined) {
+        socket.emit("trackingError", {
+          message: "driverId, busId, lat and lng are required",
+        });
+        return;
+      }
+
+      const driver = await Driver.findById(driverId);
+      if (!driver) {
+        socket.emit("trackingError", { message: "Driver not found" });
+        return;
+      }
+
+      if (!driver.busId || String(driver.busId) !== String(busId)) {
+        socket.emit("trackingError", {
+          message: "Driver is not assigned to this bus",
+        });
+        return;
+      }
+
+      if (!driver.isOnTrip) {
+        socket.emit("trackingError", {
+          message: "Trip is not active. Start trip first.",
+        });
+        return;
+      }
+
+      const bus = await Bus.findById(busId);
+      if (!bus) {
+        socket.emit("trackingError", { message: "Bus not found" });
+        return;
+      }
+
+      const now = new Date();
+
+      driver.lastLocation = { lat, lng };
+      driver.lastLocationUpdatedAt = now;
+      await driver.save();
+
+      bus.currentLocation = { lat, lng };
+      bus.lastLocationUpdatedAt = now;
+      await bus.save();
+
+      io.to(`bus_${busId}`).emit("busLocationUpdated", {
+        busId,
+        lat,
+        lng,
+        lastLocationUpdatedAt: now,
+      });
+    } catch (error) {
+      console.error("Socket driverLocation error:", error);
+      socket.emit("trackingError", {
+        message: "Failed to update driver location",
+      });
+    }
   });
 
-  socket.on('disconnect', () => {
-    console.log('❌ Client disconnected:', socket.id);
+  // ---------------------------
+  // Trip start event
+  // Only notify that bus room
+  // ---------------------------
+  socket.on("trip:start", async (payload = {}) => {
+    try {
+      const { driverId, busId } = payload;
+
+      if (!driverId || !busId) {
+        socket.emit("trackingError", {
+          message: "driverId and busId are required to start trip",
+        });
+        return;
+      }
+
+      const driver = await Driver.findById(driverId);
+      const bus = await Bus.findById(busId);
+
+      if (!driver || !bus) {
+        socket.emit("trackingError", {
+          message: "Driver or bus not found",
+        });
+        return;
+      }
+
+      if (!driver.busId || String(driver.busId) !== String(busId)) {
+        socket.emit("trackingError", {
+          message: "Driver is not assigned to this bus",
+        });
+        return;
+      }
+
+      driver.isOnTrip = true;
+      await driver.save();
+
+      bus.tripStatus = "started";
+      bus.tripStartedAt = new Date();
+      bus.tripEndedAt = null;
+      await bus.save();
+
+      io.to(`bus_${busId}`).emit("tripStatus", {
+        busId,
+        status: "started",
+        at: Date.now(),
+      });
+    } catch (error) {
+      console.error("Socket trip:start error:", error);
+      socket.emit("trackingError", {
+        message: "Failed to start trip",
+      });
+    }
+  });
+
+  // ---------------------------
+  // Trip end event
+  // Only notify that bus room
+  // ---------------------------
+  socket.on("trip:end", async (payload = {}) => {
+    try {
+      const { driverId, busId } = payload;
+
+      if (!driverId || !busId) {
+        socket.emit("trackingError", {
+          message: "driverId and busId are required to end trip",
+        });
+        return;
+      }
+
+      const driver = await Driver.findById(driverId);
+      const bus = await Bus.findById(busId);
+
+      if (!driver || !bus) {
+        socket.emit("trackingError", {
+          message: "Driver or bus not found",
+        });
+        return;
+      }
+
+      if (!driver.busId || String(driver.busId) !== String(busId)) {
+        socket.emit("trackingError", {
+          message: "Driver is not assigned to this bus",
+        });
+        return;
+      }
+
+      driver.isOnTrip = false;
+      await driver.save();
+
+      bus.tripStatus = "ended";
+      bus.tripEndedAt = new Date();
+      await bus.save();
+
+      io.to(`bus_${busId}`).emit("tripStatus", {
+        busId,
+        status: "ended",
+        at: Date.now(),
+      });
+    } catch (error) {
+      console.error("Socket trip:end error:", error);
+      socket.emit("trackingError", {
+        message: "Failed to end trip",
+      });
+    }
+  });
+
+  socket.on("disconnect", () => {
+    console.log("❌ Client disconnected:", socket.id);
   });
 });
 
@@ -141,4 +321,7 @@ io.on('connection', (socket) => {
 // Start server
 // ---------------------------
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, '0.0.0.0', () => console.log(`Server running on ${PORT}`));
+
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`🚀 Server running on ${PORT}`);
+});

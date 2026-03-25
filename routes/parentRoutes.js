@@ -1,11 +1,21 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const { registerParent, loginParent } = require('../controllers/parentController');
 
-// POST /api/parent/signup
-router.post('/signup', registerParent);
+const {
+  registerParent,
+  loginParent,
+  getMyProfile,
+  getMyBus,
+} = require("../controllers/parentController");
 
-// POST /api/parent/login
-router.post('/login', loginParent);
+const auth = require("../middleware/authMiddleware");
+
+// Public routes
+router.post("/signup", registerParent);
+router.post("/login", loginParent);
+
+// Protected routes
+router.get("/me", auth, getMyProfile);
+router.get("/my-bus", auth, getMyBus);
 
 module.exports = router;

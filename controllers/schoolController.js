@@ -74,40 +74,52 @@ exports.addStudent = async (req, res) => {
   try {
     const {
       name,
-      roll,             // ✅ matches schema
+      roll,
       address,
-      class: studentClass, // ✅ renamed from 'class' to avoid JS keyword
-      bus,
+      class: studentClass,
+      busId,              // ✅ FIXED
       studentCode,
       schoolId,
     } = req.body;
+
+    console.log("Incoming student data:", req.body); // debug
 
     const newStudent = await Student.create({
       name,
       roll,
       address,
       class: studentClass,
-      bus,
+      busId,              // ✅ FIXED
       studentCode,
       schoolId,
     });
 
-    await exports.updateStudentCount(bus, +1); // bus is busNumber
+    // 🔥 Increment student count
+    if (busId) {
+      await Bus.findByIdAndUpdate(busId, {
+        $inc: { studentCount: 1 },
+      });
+    }
 
     res.status(201).json(newStudent);
+
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Failed to add student' });
+    console.error("Add Student Error:", error);
+    res.status(500).json({ message: error.message });
   }
 };
 
-// ==================== Get All Students (for school) ====================
+// ==================== Get All Students ====================
 exports.getStudents = async (req, res) => {
   try {
     const { schoolId } = req.query;
-    const students = await Student.find({ schoolId }); // ✅ field name matches schema
+
+    const students = await Student.find({ schoolId })
+      .populate("busId"); // ✅ important for frontend
+
+    console.log("Fetching students for schoolId:", schoolId);
+
     res.status(200).json(students);
-    console.log("Fetching students for schoolId:", req.query.schoolId);
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Failed to fetch students' });
@@ -118,13 +130,39 @@ exports.getStudents = async (req, res) => {
 exports.updateStudent = async (req, res) => {
   try {
     const { id } = req.params;
-    const updatedData = req.body;
 
-    const updatedStudent = await Student.findByIdAndUpdate(id, updatedData, {
-      new: true,
-    });
+    const existing = await Student.findById(id);
+    if (!existing) {
+      return res.status(404).json({ message: "Student not found" });
+    }
+
+    const oldBusId = existing.busId?.toString();
+    const newBusId = req.body.busId;
+
+    // 🔥 handle bus change
+    if (oldBusId !== newBusId) {
+
+      if (oldBusId) {
+        await Bus.findByIdAndUpdate(oldBusId, {
+          $inc: { studentCount: -1 },
+        });
+      }
+
+      if (newBusId) {
+        await Bus.findByIdAndUpdate(newBusId, {
+          $inc: { studentCount: 1 },
+        });
+      }
+    }
+
+    const updatedStudent = await Student.findByIdAndUpdate(
+      id,
+      req.body,
+      { new: true }
+    ).populate("busId");
 
     res.status(200).json(updatedStudent);
+
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Failed to update student' });
@@ -141,16 +179,22 @@ exports.deleteStudent = async (req, res) => {
       return res.status(404).json({ message: 'Student not found' });
     }
 
-    await exports.updateStudentCount(student.bus, -1); // ✅ Correct bus number
+    // 🔥 Decrement bus count
+    if (student.busId) {
+      await Bus.findByIdAndUpdate(student.busId, {
+        $inc: { studentCount: -1 },
+      });
+    }
+
     await Student.findByIdAndDelete(id);
 
     res.status(200).json({ message: 'Student deleted successfully' });
+
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Failed to delete student' });
   }
 };
-
 
 // ==================== Add New Bus ====================
 exports.addBus = async (req, res) => {
@@ -173,12 +217,13 @@ exports.addBus = async (req, res) => {
   }
 };
 
-// ==================== Get All Buses for a School ====================
+// ==================== Get All Buses ====================
 exports.getBuses = async (req, res) => {
   try {
     const { schoolId } = req.query;
 
-    const buses = await Bus.find({ schoolId }).populate('driver', 'name');
+    const buses = await Bus.find({ schoolId });
+
     res.status(200).json(buses);
   } catch (error) {
     console.error(error);
@@ -186,25 +231,11 @@ exports.getBuses = async (req, res) => {
   }
 };
 
-// ==================== Update Student Count for a Bus ====================
-exports.updateStudentCount = async (busNumber, change) => {
-  try {
-    const bus = await Bus.findOne({ busNumber });
-    if (!bus) return;
-
-    bus.studentCount += change;
-    if (bus.studentCount < 0) bus.studentCount = 0;
-
-    await bus.save();
-  } catch (error) {
-    console.error('Error updating student count:', error.message);
-  }
-};
-
-// ==================== Assign Driver to Bus ====================
+// ==================== Assign Driver ====================
 exports.assignDriver = async (req, res) => {
   try {
     const { busId, driverId } = req.body;
+
     const updatedBus = await Bus.findByIdAndUpdate(
       busId,
       { driver: driverId },
