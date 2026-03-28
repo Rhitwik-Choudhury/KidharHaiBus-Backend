@@ -8,13 +8,15 @@ const {
   addStudent,
   getStudents,
   updateStudent,
-  deleteStudent
+  deleteStudent,
+  sendSchoolOTP,
 } = require('../controllers/schoolController');
 
 const auth = require('../middleware/authMiddleware'); // Middleware to protect routes
 
 const { addBus, getBuses } = require('../controllers/schoolController');
 
+router.post("/send-otp", sendSchoolOTP);
 router.post('/buses', authMiddleware, addBus);
 router.get('/buses', authMiddleware, getBuses);
 

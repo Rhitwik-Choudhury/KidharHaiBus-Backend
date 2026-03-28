@@ -21,15 +21,6 @@ const parentSchema = new mongoose.Schema(
       required: true,
     },
 
-    mobileNumber: {
-      type: String,
-      unique: true,
-      sparse: true,
-      default: null,
-      trim: true,
-    },
-
-    // Optional but useful for safer filtering by school
     schoolId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "School",
@@ -37,14 +28,12 @@ const parentSchema = new mongoose.Schema(
       index: true,
     },
 
-    // Parent can sign up using student code
     studentCode: {
       type: String,
       default: null,
       trim: true,
     },
 
-    // Parent can have one or more children
     children: [
       {
         type: mongoose.Schema.Types.ObjectId,

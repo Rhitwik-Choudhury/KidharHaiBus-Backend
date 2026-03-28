@@ -4,21 +4,65 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
 const FIXED_DRIVER_CODE = "DRIVER2025";
+const { sendOTP } = require("../utils/emailService");
+const Otp = require("../models/Otp");
+
+// ================= SEND OTP =================
+exports.sendDriverOTP = async (req, res) => {
+  try {
+    const { email } = req.body;
+    const emailNormalized = email.trim().toLowerCase();
+
+    const otp = Math.floor(100000 + Math.random() * 900000);
+
+    await Otp.deleteMany({ email });
+
+    await Otp.create({
+      email: emailNormalized,
+      otp: otp.toString(),
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+    });
+
+    const emailSent = await sendOTP(email, otp);
+
+    if (!emailSent) {
+      return res.status(500).json({ message: "Failed to send OTP" });
+    }
+
+    res.status(200).json({
+      message: "OTP sent successfully",
+      otp, // ⚠️ remove later
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server Error" });
+  }
+};
 
 // ================= REGISTER DRIVER =================
 exports.registerDriver = async (req, res) => {
-  const { fullName, email, password, driverCode } = req.body;
+  const { fullName, email, password, driverCode, otp, schoolId } = req.body;
 
   try {
-    // 🔥 GET SCHOOL ID FROM TOKEN
-    const schoolId = req.user?.id;
+    const emailNormalized = email.trim().toLowerCase();
+    // ✅ VERIFY OTP
+    const record = await Otp.findOne({ email: emailNormalized });
 
-    if (!schoolId) {
-      return res.status(401).json({
-        message: "Unauthorized: School not identified",
-      });
+    if (!record) {
+      return res.status(400).json({ message: "Please request OTP first" });
     }
 
+    if (new Date() > record.expiresAt) {
+      return res.status(400).json({ message: "OTP expired" });
+    }
+
+    if (record.otp !== otp) {
+      return res.status(400).json({ message: "Invalid OTP" });
+    }
+
+    await Otp.deleteOne({ email });
+
+    // ✅ DRIVER CODE CHECK
     if (driverCode !== FIXED_DRIVER_CODE) {
       return res.status(403).json({ message: "Invalid driver code" });
     }
@@ -35,40 +79,17 @@ exports.registerDriver = async (req, res) => {
       email,
       password: hashedPassword,
       driverCode,
-
-      // 🔥 IMPORTANT FIX
-      schoolId: schoolId,   // ✅ AUTO ATTACH
-
+      schoolId, // ✅ PASS FROM FRONTEND
       busId: null,
       isOnTrip: false,
-      lastLocation: {
-        lat: null,
-        lng: null,
-      },
-      lastLocationUpdatedAt: null,
     });
 
     await newDriver.save();
 
-    const token = jwt.sign(
-      { id: newDriver._id, role: "driver" },
-      process.env.JWT_SECRET,
-      { expiresIn: "1d" }
-    );
-
     res.status(201).json({
       message: "Driver registered successfully",
-      token,
-      user: {
-        id: newDriver._id,
-        fullName: newDriver.fullName,
-        email: newDriver.email,
-        driverCode: newDriver.driverCode,
-        schoolId: newDriver.schoolId, // ✅ NOW WILL NEVER BE NULL
-        busId: newDriver.busId,
-        isOnTrip: newDriver.isOnTrip,
-      },
     });
+
   } catch (err) {
     console.error("Driver Register Error:", err);
     res.status(500).json({ message: "Server Error" });

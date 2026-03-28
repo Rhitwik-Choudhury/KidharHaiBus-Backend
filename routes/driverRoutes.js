@@ -10,14 +10,16 @@ const {
   startTrip,
   endTrip,
   updateDriverLocation,
-  getAllDrivers, // ✅ added
+  getAllDrivers,
+  sendDriverOTP, 
 } = require("../controllers/driverController");
 
 // ✅ IMPORT AUTH BEFORE USING
 const auth = require("../middleware/authMiddleware");
 
+router.post("/send-otp", sendDriverOTP);
 // ================= PUBLIC ROUTES =================
-router.post("/signup", auth, registerDriver);
+router.post("/signup", registerDriver);
 router.post("/login", loginDriver);
 
 // ================= DRIVER LIST (IMPORTANT) =================

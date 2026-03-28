@@ -6,10 +6,12 @@ const {
   loginParent,
   getMyProfile,
   getMyBus,
+  sendParentOTP,
 } = require("../controllers/parentController");
 
 const auth = require("../middleware/authMiddleware");
 
+router.post("/send-otp", sendParentOTP);
 // Public routes
 router.post("/signup", registerParent);
 router.post("/login", loginParent);

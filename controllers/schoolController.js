@@ -3,10 +3,56 @@ const Student = require('../models/Student');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const Bus = require('../models/Bus');
+const { sendOTP } = require("../utils/emailService");
+const Otp = require("../models/Otp");
+
+// ================= SEND OTP =================
+exports.sendSchoolOTP = async (req, res) => {
+  try {
+    const { email } = req.body;
+    const emailNormalized = email.trim().toLowerCase();
+
+    const otp = Math.floor(100000 + Math.random() * 900000);
+
+    await Otp.deleteMany({ email: emailNormalized });
+
+    await Otp.create({
+      email: emailNormalized,
+      otp: otp.toString(),
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+    });
+
+    const emailSent = await sendOTP(email, otp);
+
+    if (!emailSent) {
+      return res.status(500).json({ message: "Failed to send OTP" });
+    }
+
+    res.status(200).json({
+      message: "OTP sent successfully",
+      otp, // ⚠️ remove later in production
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server Error" });
+  }
+};
 
 // ==================== Register School ====================
 exports.registerSchool = async (req, res) => {
-  const { schoolName, adminName, email, password } = req.body;
+  const { schoolName, adminName, email, password, otp } = req.body;
+  const emailNormalized = email.trim().toLowerCase();
+  const record = await Otp.findOne({ email: emailNormalized });
+
+  if (!record) return res.status(400).json({ message: "OTP not found" });
+
+  if (new Date() > record.expiresAt)
+    return res.status(400).json({ message: "OTP expired" });
+
+  if (record.otp !== otp)
+    return res.status(400).json({ message: "Invalid OTP" });
+
+  await Otp.deleteOne({ email: emailNormalized });
 
   try {
     const existingSchool = await School.findOne({ email });

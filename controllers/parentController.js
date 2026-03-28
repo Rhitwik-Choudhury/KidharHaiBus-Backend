@@ -3,20 +3,70 @@ const jwt = require("jsonwebtoken");
 const Parent = require("../models/Parent");
 const Student = require("../models/Student");
 
+const { sendOTP } = require("../utils/emailService");
+const Otp = require("../models/Otp");
+
+// ================= SEND OTP =================
+exports.sendParentOTP = async (req, res) => {
+  try {
+    const { email } = req.body;
+    const emailNormalized = email.trim().toLowerCase();
+
+    const otp = Math.floor(100000 + Math.random() * 900000);
+
+    await Otp.deleteMany({ email });
+
+    await Otp.create({
+      email: emailNormalized,
+      otp: otp.toString(),
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+    });
+
+    const emailSent = await sendOTP(email, otp);
+
+    if (!emailSent) {
+      return res.status(500).json({ message: "Failed to send OTP" });
+    }
+
+    res.status(200).json({
+      message: "OTP sent successfully",
+      otp, // ⚠️ remove later
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server Error" });
+  }
+};
+
 /**
  * POST /api/parent/signup
  * Accepts: { name?, fullName?, email, password, studentCode? }
  */
 /*Register Parent*/
+
+
 exports.registerParent = async (req, res) => {
   try {
-    const { name, fullName, email, password, studentCode, mobileNumber } = req.body;
+    const { name, fullName, email, password, studentCode, otp } = req.body;
+    const emailNormalized = email.trim().toLowerCase();
+    // ✅ OTP VERIFY (FIXED)
+    const record = await Otp.findOne({ email: emailNormalized });
+
+    if (!record) return res.status(400).json({ message: "OTP not found" });
+
+    if (new Date() > record.expiresAt)
+      return res.status(400).json({ message: "OTP expired" });
+
+    if (record.otp !== otp)
+      return res.status(400).json({ message: "Invalid OTP" });
+
+    await Otp.deleteOne({ email: emailNormalized });
 
     const displayName = (fullName || name || "").trim();
     if (!displayName || !email || !password) {
-      return res
-        .status(400)
-        .json({ message: "Full name, email and password are required" });
+      return res.status(400).json({
+        message: "Full name, email and password are required",
+      });
     }
 
     const exists = await Parent.findOne({ email });
@@ -36,14 +86,13 @@ exports.registerParent = async (req, res) => {
 
       if (!linkedStudent) {
         return res.status(400).json({
-          message: "Invalid student code. Please enter the correct code provided by your school.",
+          message: "Invalid student code",
         });
       }
 
       schoolId = linkedStudent.schoolId || null;
     }
 
-    // 🔥 FIX: Only include mobileNumber if provided
     const parentData = {
       fullName: displayName,
       email,
@@ -52,10 +101,6 @@ exports.registerParent = async (req, res) => {
       schoolId,
       children: linkedStudent ? [linkedStudent._id] : [],
     };
-
-    if (mobileNumber && mobileNumber.trim() !== "") {
-      parentData.mobileNumber = mobileNumber.trim();
-    }
 
     const parent = await Parent.create(parentData);
 
@@ -72,21 +117,10 @@ exports.registerParent = async (req, res) => {
         id: parent._id.toString(),
         fullName: parent.fullName,
         email: parent.email,
-        studentCode: parent.studentCode || null,
-        schoolId: parent.schoolId || null,
-        children: parent.children || [],
       },
     });
   } catch (err) {
     console.warn("Parent Register Error:", err);
-
-    if (err?.code === 11000) {
-      const field = Object.keys(err.keyPattern || {})[0] || "field";
-      return res
-        .status(400)
-        .json({ message: `Duplicate ${field}. Please use another.` });
-    }
-
     return res.status(500).json({ message: "Server Error" });
   }
 };
