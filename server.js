@@ -39,6 +39,8 @@ const defaultAllowed = [
   "http://127.0.0.1:3000",
   process.env.CLIENT_URL,
   "https://gleaming-mandazi-ccf976.netlify.app",
+  "https://trackefy.in",
+  "https://www.trackefy.in",
 ].filter(Boolean);
 
 const envAllowed = (process.env.ALLOWED_ORIGINS || "")

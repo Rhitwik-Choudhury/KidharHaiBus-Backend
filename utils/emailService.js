@@ -25,4 +25,29 @@ const sendOTP = async (to, otp) => {
   }
 };
 
-module.exports = { sendOTP };
+const sendContactEmail = async ({ name, email, message, subject }) => {
+  try {
+    await resend.emails.send({
+      from: "Trackefy <noreply@trackefy.in>",
+      to: "trackefy@gmail.com", // 🔥 YOUR RECEIVING EMAIL
+      subject: subject || "New Contact Message",
+      reply_to: email, // so you can reply directly to user
+      html: `
+        <div style="font-family: Arial;">
+          <h2>New Contact Message</h2>
+          <p><strong>Name:</strong> ${name}</p>
+          <p><strong>Email:</strong> ${email}</p>
+          <p><strong>Message:</strong></p>
+          <p>${message}</p>
+        </div>
+      `,
+    });
+
+    return true;
+  } catch (err) {
+    console.error("Contact Email Error:", err);
+    return false;
+  }
+};
+
+module.exports = { sendOTP, sendContactEmail };

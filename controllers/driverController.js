@@ -6,6 +6,7 @@ const jwt = require("jsonwebtoken");
 const FIXED_DRIVER_CODE = "DRIVER2025";
 const { sendOTP } = require("../utils/emailService");
 const Otp = require("../models/Otp");
+const DEFAULT_SCHOOL_ID = "69baa1fdc6a849a65b8a5740";
 
 // ================= SEND OTP =================
 exports.sendDriverOTP = async (req, res) => {
@@ -15,7 +16,7 @@ exports.sendDriverOTP = async (req, res) => {
 
     const otp = Math.floor(100000 + Math.random() * 900000);
 
-    await Otp.deleteMany({ email });
+    await Otp.deleteMany({ email: emailNormalized });
 
     await Otp.create({
       email: emailNormalized,
@@ -41,7 +42,7 @@ exports.sendDriverOTP = async (req, res) => {
 
 // ================= REGISTER DRIVER =================
 exports.registerDriver = async (req, res) => {
-  const { fullName, email, password, driverCode, otp, schoolId } = req.body;
+  const { fullName, email, password, driverCode, otp } = req.body;
 
   try {
     const emailNormalized = email.trim().toLowerCase();
@@ -60,14 +61,14 @@ exports.registerDriver = async (req, res) => {
       return res.status(400).json({ message: "Invalid OTP" });
     }
 
-    await Otp.deleteOne({ email });
+    await Otp.deleteOne({ email: emailNormalized });
 
     // ✅ DRIVER CODE CHECK
     if (driverCode !== FIXED_DRIVER_CODE) {
       return res.status(403).json({ message: "Invalid driver code" });
     }
 
-    const existingDriver = await Driver.findOne({ email });
+    const existingDriver = await Driver.findOne({ email: emailNormalized });
     if (existingDriver) {
       return res.status(400).json({ message: "Email already registered" });
     }
@@ -76,10 +77,10 @@ exports.registerDriver = async (req, res) => {
 
     const newDriver = new Driver({
       fullName,
-      email,
+      email: emailNormalized,
       password: hashedPassword,
       driverCode,
-      schoolId, // ✅ PASS FROM FRONTEND
+      schoolId: DEFAULT_SCHOOL_ID,
       busId: null,
       isOnTrip: false,
     });
