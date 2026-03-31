@@ -229,6 +229,16 @@ exports.startTrip = async (req, res) => {
     bus.tripEndedAt = null;
     await bus.save();
 
+    const io = req.io;
+
+    if (io) {
+      io.to(`bus_${bus._id}`).emit("tripStatus", {
+        busId: bus._id,
+        status: "started",
+        at: Date.now(),
+      });
+    }
+
     res.status(200).json({
       message: "Trip started successfully",
       driver: {
@@ -276,6 +286,16 @@ exports.endTrip = async (req, res) => {
     bus.tripStatus = "ended";
     bus.tripEndedAt = new Date();
     await bus.save();
+
+    const io = req.io;
+
+    if (io) {
+      io.to(`bus_${bus._id}`).emit("tripStatus", {
+        busId: bus._id,
+        status: "ended",
+        at: Date.now(),
+      });
+    }
 
     res.status(200).json({
       message: "Trip ended successfully",
