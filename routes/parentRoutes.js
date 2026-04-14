@@ -12,7 +12,7 @@ const {
 
 const auth = require("../middleware/authMiddleware");
 
-router.post('/set-location', auth, setParentLocation);
+router.post('/set-pickup-location', auth, setParentLocation);
 router.post("/send-otp", sendParentOTP);
 // Public routes
 router.post("/signup", registerParent);
