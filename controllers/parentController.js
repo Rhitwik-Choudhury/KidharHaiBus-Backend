@@ -246,20 +246,44 @@ exports.getMyBus = async (req, res) => {
 
 exports.setParentLocation = async (req, res) => {
   try {
-    const { lat, lng } = req.body;
+    console.log("BODY:", req.body);
+    console.log("USER:", req.user);
 
+    let { lat, lng } = req.body;
+
+    // ✅ Convert to number (CRITICAL FIX)
+    lat = Number(lat);
+    lng = Number(lng);
+
+    // ✅ Validate
+    if (!lat || !lng || isNaN(lat) || isNaN(lng)) {
+      return res.status(400).json({ message: "Invalid coordinates" });
+    }
+
+    // ✅ Find parent
     const parent = await Parent.findById(req.user.id);
 
     if (!parent) {
       return res.status(404).json({ message: "Parent not found" });
     }
 
-    parent.stopLocation = { lat, lng };
+    // ✅ Save properly
+    parent.stopLocation = {
+      lat: lat,
+      lng: lng,
+    };
+
     await parent.save();
 
-    res.json({ message: "Location saved successfully" });
+    console.log("✅ Location saved:", parent.stopLocation);
+
+    res.status(200).json({
+      message: "Location saved successfully",
+      stopLocation: parent.stopLocation,
+    });
+
   } catch (error) {
-    console.error(error);
+    console.error("❌ ERROR:", error);
     res.status(500).json({ message: "Server error" });
   }
 };
