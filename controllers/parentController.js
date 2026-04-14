@@ -47,7 +47,7 @@ exports.sendParentOTP = async (req, res) => {
 
 exports.registerParent = async (req, res) => {
   try {
-    const { name, fullName, email, password, studentCode, otp } = req.body;
+    const { name, fullName, email, password, studentCode, otp, phone } = req.body;
     const emailNormalized = email.trim().toLowerCase();
     // ✅ OTP VERIFY (FIXED)
     const record = await Otp.findOne({ email: emailNormalized });
@@ -97,6 +97,7 @@ exports.registerParent = async (req, res) => {
       fullName: displayName,
       email,
       password: hash,
+      phone, // ✅ ADD THIS
       studentCode: studentCode ? studentCode.trim().toUpperCase() : null,
       schoolId,
       children: linkedStudent ? [linkedStudent._id] : [],
@@ -240,5 +241,25 @@ exports.getMyBus = async (req, res) => {
   } catch (err) {
     console.warn("Get Parent Bus Error:", err);
     return res.status(500).json({ message: "Server Error" });
+  }
+};
+
+exports.setParentLocation = async (req, res) => {
+  try {
+    const { lat, lng } = req.body;
+
+    const parent = await Parent.findById(req.user.id);
+
+    if (!parent) {
+      return res.status(404).json({ message: "Parent not found" });
+    }
+
+    parent.stopLocation = { lat, lng };
+    await parent.save();
+
+    res.json({ message: "Location saved successfully" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Server error" });
   }
 };

@@ -2,6 +2,21 @@ const mongoose = require("mongoose");
 
 const parentSchema = new mongoose.Schema(
   {
+    phone: {
+      type: String,
+      required: true
+    },
+
+    stopLocation: {
+      lat: Number,
+      lng: Number
+    },
+
+    whatsappOptIn: {
+      type: Boolean,
+      default: false
+    },
+    
     fullName: {
       type: String,
       required: true,

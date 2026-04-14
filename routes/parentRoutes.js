@@ -7,10 +7,12 @@ const {
   getMyProfile,
   getMyBus,
   sendParentOTP,
+  setParentLocation, // ✅ ADD HERE
 } = require("../controllers/parentController");
 
 const auth = require("../middleware/authMiddleware");
 
+router.post('/set-location', auth, setParentLocation);
 router.post("/send-otp", sendParentOTP);
 // Public routes
 router.post("/signup", registerParent);
