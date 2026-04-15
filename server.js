@@ -182,11 +182,17 @@ io.on("connection", (socket) => {
         return;
       }
 
+      // if (!driver.isOnTrip) {
+      //   socket.emit("trackingError", {
+      //     message: "Trip is not active. Start trip first.",
+      //   });
+      //   return;
+      // }
+      console.log("Driver isOnTrip:", driver.isOnTrip);
+
+      // TEMP FIX (for debugging)
       if (!driver.isOnTrip) {
-        socket.emit("trackingError", {
-          message: "Trip is not active. Start trip first.",
-        });
-        return;
+        console.log("⚠️ Driver not on trip, but allowing location for now");
       }
 
       const bus = await Bus.findById(busId);
@@ -226,7 +232,7 @@ io.on("connection", (socket) => {
   socket.on("trip:start", async (payload = {}) => {
     try {
       const { driverId, busId } = payload;
-
+      console.log("🚀 Trip start received:", payload);
       if (!driverId || !busId) {
         socket.emit("trackingError", {
           message: "driverId and busId are required to start trip",
