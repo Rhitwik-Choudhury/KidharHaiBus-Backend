@@ -110,19 +110,29 @@ app.use("/api/buses", busRoutes);
 // ---------------------------
 // Socket.IO
 // ---------------------------
+// const io = new Server(server, {
+//   path: "/socket.io",
+//   cors: {
+//     origin: (origin, cb) => {
+//       logOrigin(origin);
+//       if (!origin) return cb(null, true);
+//       if (allowed.includes(origin)) return cb(null, true);
+//       console.error(`[Socket.IO CORS] Not allowed: ${origin}`);
+//       return cb(new Error("Not allowed by CORS"));
+//     },
+//     methods: ["GET", "POST"],
+//     credentials: true,
+//   },
+// });
+
 const io = new Server(server, {
   path: "/socket.io",
   cors: {
-    origin: (origin, cb) => {
-      logOrigin(origin);
-      if (!origin) return cb(null, true);
-      if (allowed.includes(origin)) return cb(null, true);
-      console.error(`[Socket.IO CORS] Not allowed: ${origin}`);
-      return cb(new Error("Not allowed by CORS"));
-    },
+    origin: "*",   // ✅ FIX
     methods: ["GET", "POST"],
     credentials: true,
   },
+  transports: ["websocket", "polling"], // ✅ important
 });
 
 io.on("connection", (socket) => {
@@ -195,7 +205,7 @@ io.on("connection", (socket) => {
       bus.lastLocationUpdatedAt = now;
       await bus.save();
 
-      io.to(`bus_${busId}`).emit("busLocationUpdated", {
+      io.to(`bus_${busId}`).emit("location-update", {
         busId,
         lat,
         lng,

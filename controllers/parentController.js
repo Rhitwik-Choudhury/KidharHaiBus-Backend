@@ -246,36 +246,41 @@ exports.getMyBus = async (req, res) => {
 
 exports.setParentLocation = async (req, res) => {
   try {
+    console.log("=== PICKUP API HIT ===");
     console.log("BODY:", req.body);
     console.log("USER:", req.user);
 
     let { lat, lng } = req.body;
 
-    // ✅ Convert to number (CRITICAL FIX)
     lat = Number(lat);
     lng = Number(lng);
 
-    // ✅ Validate
+    console.log("Converted:", lat, lng);
+
     if (!lat || !lng || isNaN(lat) || isNaN(lng)) {
+      console.log("❌ Invalid coordinates");
       return res.status(400).json({ message: "Invalid coordinates" });
     }
 
-    // ✅ Find parent
+    console.log("Finding parent...");
     const parent = await Parent.findById(req.user.id);
 
+    console.log("Parent found:", parent);
+
     if (!parent) {
+      console.log("❌ Parent not found");
       return res.status(404).json({ message: "Parent not found" });
     }
 
-    // ✅ Save properly
     parent.stopLocation = {
-      lat: lat,
-      lng: lng,
+      lat,
+      lng,
     };
 
+    console.log("Saving...");
     await parent.save();
 
-    console.log("✅ Location saved:", parent.stopLocation);
+    console.log("✅ Saved successfully");
 
     res.status(200).json({
       message: "Location saved successfully",
@@ -283,7 +288,9 @@ exports.setParentLocation = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("❌ ERROR:", error);
+    console.error("🔥 FULL ERROR:", error);
+    console.error("🔥 STACK:", error.stack);
+
     res.status(500).json({ message: "Server error" });
   }
 };
