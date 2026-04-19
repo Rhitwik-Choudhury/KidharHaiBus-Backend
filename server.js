@@ -182,18 +182,13 @@ io.on("connection", (socket) => {
         return;
       }
 
-      // if (!driver.isOnTrip) {
-      //   socket.emit("trackingError", {
-      //     message: "Trip is not active. Start trip first.",
-      //   });
-      //   return;
-      // }
-      console.log("Driver isOnTrip:", driver.isOnTrip);
-
-      // TEMP FIX (for debugging)
       if (!driver.isOnTrip) {
-        console.log("⚠️ Driver not on trip, but allowing location for now");
+        socket.emit("trackingError", {
+          message: "Trip is not active. Start trip first.",
+        });
+        return;
       }
+      console.log("Driver isOnTrip:", driver.isOnTrip);
 
       const bus = await Bus.findById(busId);
       if (!bus) {
