@@ -8,6 +8,28 @@ const { sendOTP } = require("../utils/emailService");
 const Otp = require("../models/Otp");
 const DEFAULT_SCHOOL_ID = "69baa1fdc6a849a65b8a5740";
 
+// ================= HELPER: DISTANCE (Haversine) =================
+const getDistanceInMeters = (lat1, lon1, lat2, lon2) => {
+  const R = 6371e3;
+  const toRad = (x) => (x * Math.PI) / 180;
+
+  const φ1 = toRad(lat1);
+  const φ2 = toRad(lat2);
+  const Δφ = toRad(lat2 - lat1);
+  const Δλ = toRad(lon2 - lon1);
+
+  const a =
+    Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+    Math.cos(φ1) *
+      Math.cos(φ2) *
+      Math.sin(Δλ / 2) *
+      Math.sin(Δλ / 2);
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c;
+};
+
 // ================= SEND OTP =================
 exports.sendDriverOTP = async (req, res) => {
   try {
@@ -237,6 +259,11 @@ exports.startTrip = async (req, res) => {
         status: "started",
         at: Date.now(),
       });
+      // 🔔 Trip Start Alert
+      io.to(`bus_${bus._id}`).emit("alert", {
+        type: "TRIP_STARTED",
+        message: "Bus has started the trip",
+      });
     }
 
     res.status(200).json({
@@ -361,7 +388,50 @@ exports.updateDriverLocation = async (req, res) => {
     bus.lastLocationUpdatedAt = now;
     await bus.save();
 
-    // Optional Socket.IO emit if io is attached to req
+    // ================= ETA + ALERT LOGIC =================
+    const Parent = require("../models/Parent");
+
+    const parents = await Parent.find({
+      schoolId: driver.schoolId,
+    }).populate("children");
+
+    for (const parent of parents) {
+      if (!parent.stopLocation) continue;
+
+      // 🔴 FILTER: only parents whose child is in this bus
+      const isLinkedToBus = parent.children?.some(
+        (child) => String(child.busId) === String(bus._id)
+      );
+
+      if (!isLinkedToBus) continue;
+
+      const { lat: pLat, lng: pLng } = parent.stopLocation;
+
+      const distance = getDistanceInMeters(lat, lng, pLat, pLng);
+
+      const speed = 8.33; // m/s (~30km/h)
+      const etaMinutes = (distance / speed) / 60;
+
+      // 🔔 ETA 5 MIN (trigger once approx)
+      if (etaMinutes <= 5 && etaMinutes > 4.8) {
+        req.io?.to(`bus_${bus._id}`).emit("alert", {
+          type: "ETA_5_MIN",
+          parentId: parent._id,
+          message: "Bus will reach in ~5 minutes",
+        });
+      }
+
+      // 🔔 ARRIVED (very close range)
+      if (distance <= 80) {
+        req.io?.to(`bus_${bus._id}`).emit("alert", {
+          type: "ARRIVED",
+          parentId: parent._id,
+          message: "Bus has arrived at pickup location",
+        });
+      }
+    }
+
+    // ================= LOCATION UPDATE =================
     if (req.io) {
       req.io.to(`bus_${bus._id}`).emit("busLocationUpdated", {
         busId: bus._id,
@@ -377,6 +447,7 @@ exports.updateDriverLocation = async (req, res) => {
       currentLocation: bus.currentLocation,
       lastLocationUpdatedAt: now,
     });
+
   } catch (err) {
     console.error("Update Driver Location Error:", err);
     res.status(500).json({ message: "Server Error" });
