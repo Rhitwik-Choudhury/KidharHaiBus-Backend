@@ -206,6 +206,62 @@ io.on("connection", (socket) => {
       bus.lastLocationUpdatedAt = now;
       await bus.save();
 
+      // ================= ETA + ALERT LOGIC =================
+      const Parent = require("./models/Parent");
+
+      const parents = await Parent.find({
+        schoolId: driver.schoolId,
+      }).populate("children");
+
+      for (const parent of parents) {
+        if (!parent.stopLocation) continue;
+
+        const isLinkedToBus = parent.children?.some(
+          (child) => String(child.busId) === String(bus._id)
+        );
+
+        if (!isLinkedToBus) continue;
+
+        const getDistanceInMeters = (lat1, lon1, lat2, lon2) => {
+          const R = 6371e3;
+          const toRad = (x) => (x * Math.PI) / 180;
+
+          const φ1 = toRad(lat1);
+          const φ2 = toRad(lat2);
+          const Δφ = toRad(lat2 - lat1);
+          const Δλ = toRad(lon2 - lon1);
+
+          const a =
+            Math.sin(Δφ / 2) ** 2 +
+            Math.cos(φ1) *
+              Math.cos(φ2) *
+              Math.sin(Δλ / 2) ** 2;
+
+          return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        };
+
+        const distance = getDistanceInMeters(lat, lng, parent.stopLocation.lat, parent.stopLocation.lng);
+
+        const speed = 8.33;
+        const etaMinutes = (distance / speed) / 60;
+
+        if (etaMinutes <= 5 && etaMinutes > 4.8) {
+          io.to(`bus_${bus._id}`).emit("alert", {
+            type: "ETA_5_MIN",
+            parentId: parent._id,
+            message: "Bus will reach in ~5 minutes",
+          });
+        }
+
+        if (distance <= 80) {
+          io.to(`bus_${bus._id}`).emit("alert", {
+            type: "ARRIVED",
+            parentId: parent._id,
+            message: "Bus has arrived at pickup location",
+          });
+        }
+      }
+
       io.to(`bus_${busId}`).emit("location-update", {
         busId,
         lat,
