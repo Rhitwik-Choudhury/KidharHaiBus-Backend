@@ -245,7 +245,7 @@ io.on("connection", (socket) => {
         const speed = 8.33;
         const etaMinutes = (distance / speed) / 60;
 
-        if (etaMinutes <= 5 && etaMinutes > 4.8) {
+        if (etaMinutes <= 10) {
           io.to(`bus_${bus._id}`).emit("alert", {
             type: "ETA_5_MIN",
             parentId: parent._id,
@@ -253,7 +253,7 @@ io.on("connection", (socket) => {
           });
         }
 
-        if (distance <= 80) {
+        if (distance <= 2000) {
           io.to(`bus_${bus._id}`).emit("alert", {
             type: "ARRIVED",
             parentId: parent._id,
