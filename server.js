@@ -321,6 +321,11 @@ io.on("connection", (socket) => {
         status: "started",
         at: Date.now(),
       });
+      // 🔔 ALERT: Trip Started
+      io.to(`bus_${busId}`).emit("alert", {
+        type: "TRIP_STARTED",
+        message: "Bus trip has started",
+      });
     } catch (error) {
       console.error("Socket trip:start error:", error);
       socket.emit("trackingError", {
@@ -372,6 +377,11 @@ io.on("connection", (socket) => {
         busId,
         status: "ended",
         at: Date.now(),
+      });
+      // 🔔 ALERT: Trip Ended
+      io.to(`bus_${busId}`).emit("alert", {
+        type: "TRIP_ENDED",
+        message: "Bus trip has ended",
       });
     } catch (error) {
       console.error("Socket trip:end error:", error);
