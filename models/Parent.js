@@ -2,6 +2,11 @@ const mongoose = require("mongoose");
 
 const parentSchema = new mongoose.Schema(
   {
+    fcmToken: {
+      type: String,
+      default: null
+    },
+
     phone: {
       type: String,
       required: true

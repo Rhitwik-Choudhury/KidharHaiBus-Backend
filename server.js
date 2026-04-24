@@ -6,6 +6,9 @@ const { Server } = require("socket.io");
 
 const Driver = require("./models/Driver");
 const Bus = require("./models/Bus");
+const Parent = require("./models/Parent"); // ✅ moved here (global use)
+const sendNotification = require("./utils/sendNotification");
+
 const alertState = {};
 
 // ---------------------------
@@ -72,7 +75,6 @@ const corsOptions = {
 
 app.set("trust proxy", 1);
 
-// Apply CORS BEFORE routes
 app.use(cors(corsOptions));
 app.options(/^\/api\/.*/, cors(corsOptions));
 app.options(/^\/socket\.io\/.*/, cors(corsOptions));
@@ -80,7 +82,7 @@ app.options(/^\/socket\.io\/.*/, cors(corsOptions));
 app.use(express.json());
 
 // ---------------------------
-// Attach io to req for REST controllers
+// Attach io to req
 // ---------------------------
 app.use((req, _res, next) => {
   req.io = io;
@@ -88,17 +90,11 @@ app.use((req, _res, next) => {
 });
 
 // ---------------------------
-// DB connection
-// ---------------------------
 require("./config/db")();
 
 // ---------------------------
-// Health route
-// ---------------------------
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
-// ---------------------------
-// API routes
 // ---------------------------
 app.use("/api/auth", authRoutes);
 app.use("/api/parent", parentRoutes);
@@ -111,91 +107,38 @@ app.use("/api/buses", busRoutes);
 // ---------------------------
 // Socket.IO
 // ---------------------------
-// const io = new Server(server, {
-//   path: "/socket.io",
-//   cors: {
-//     origin: (origin, cb) => {
-//       logOrigin(origin);
-//       if (!origin) return cb(null, true);
-//       if (allowed.includes(origin)) return cb(null, true);
-//       console.error(`[Socket.IO CORS] Not allowed: ${origin}`);
-//       return cb(new Error("Not allowed by CORS"));
-//     },
-//     methods: ["GET", "POST"],
-//     credentials: true,
-//   },
-// });
-
 const io = new Server(server, {
   path: "/socket.io",
   cors: {
-    origin: "*",   // ✅ FIX
+    origin: "*",
     methods: ["GET", "POST"],
     credentials: true,
   },
-  transports: ["websocket", "polling"], // ✅ important
+  transports: ["websocket", "polling"],
 });
 
 io.on("connection", (socket) => {
   console.log("🚐 Client connected:", socket.id);
 
-  // ---------------------------
-  // Parent / client joins their bus room
-  // Example room: bus_<busId>
-  // ---------------------------
   socket.on("joinBusRoom", ({ busId }) => {
     if (!busId) return;
     socket.join(`bus_${busId}`);
-    console.log(`Socket ${socket.id} joined room bus_${busId}`);
   });
 
   socket.on("leaveBusRoom", ({ busId }) => {
     if (!busId) return;
     socket.leave(`bus_${busId}`);
-    console.log(`Socket ${socket.id} left room bus_${busId}`);
   });
 
-  // ---------------------------
-  // Driver sends live location
-  // This now updates ONLY the assigned bus room
-  // ---------------------------
+  // ================= DRIVER LOCATION =================
   socket.on("driverLocation", async (data = {}) => {
     try {
       const { driverId, busId, lat, lng } = data;
 
-      if (!driverId || !busId || lat === undefined || lng === undefined) {
-        socket.emit("trackingError", {
-          message: "driverId, busId, lat and lng are required",
-        });
-        return;
-      }
-
       const driver = await Driver.findById(driverId);
-      if (!driver) {
-        socket.emit("trackingError", { message: "Driver not found" });
-        return;
-      }
-
-      if (!driver.busId || String(driver.busId) !== String(busId)) {
-        socket.emit("trackingError", {
-          message: "Driver is not assigned to this bus",
-        });
-        return;
-      }
-
-      if (!driver.isOnTrip) {
-        socket.emit("trackingError", {
-          message: "Trip is not active. Start trip first.",
-        });
-        return;
-      }
-      console.log("Driver isOnTrip:", driver.isOnTrip);
-
       const bus = await Bus.findById(busId);
-      if (!bus) {
-        socket.emit("trackingError", { message: "Bus not found" });
-        return;
-      }
+
+      if (!driver || !bus) return;
 
       const now = new Date();
 
@@ -207,9 +150,6 @@ io.on("connection", (socket) => {
       bus.lastLocationUpdatedAt = now;
       await bus.save();
 
-      // ================= ETA + ALERT LOGIC =================
-      const Parent = require("./models/Parent");
-
       const parents = await Parent.find({
         schoolId: driver.schoolId,
       }).populate("children");
@@ -217,62 +157,69 @@ io.on("connection", (socket) => {
       for (const parent of parents) {
         if (!parent.stopLocation) continue;
 
-        const isLinkedToBus = parent.children?.some(
+        const isLinked = parent.children?.some(
           (child) => String(child.busId) === String(bus._id)
         );
+        if (!isLinked) continue;
 
-        if (!isLinkedToBus) continue;
-
-        const getDistanceInMeters = (lat1, lon1, lat2, lon2) => {
+        const getDistance = (a, b, c, d) => {
           const R = 6371e3;
           const toRad = (x) => (x * Math.PI) / 180;
-
-          const φ1 = toRad(lat1);
-          const φ2 = toRad(lat2);
-          const Δφ = toRad(lat2 - lat1);
-          const Δλ = toRad(lon2 - lon1);
-
-          const a =
+          const φ1 = toRad(a), φ2 = toRad(c);
+          const Δφ = toRad(c - a);
+          const Δλ = toRad(d - b);
+          const val =
             Math.sin(Δφ / 2) ** 2 +
-            Math.cos(φ1) *
-              Math.cos(φ2) *
-              Math.sin(Δλ / 2) ** 2;
-
-          return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
+          return 2 * R * Math.atan2(Math.sqrt(val), Math.sqrt(1 - val));
         };
 
-        const distance = getDistanceInMeters(lat, lng, parent.stopLocation.lat, parent.stopLocation.lng);
+        const distance = getDistance(
+          lat,
+          lng,
+          parent.stopLocation.lat,
+          parent.stopLocation.lng
+        );
 
-        const speed = 8.33;
-        const etaMinutes = (distance / speed) / 60;
-
+        const eta = (distance / 8.33) / 60;
         const key = `${parent._id}_${bus._id}`;
 
         if (!alertState[key]) {
-          alertState[key] = {
-            etaSent: false,
-            arrivedSent: false,
-          };
+          alertState[key] = { etaSent: false, arrivedSent: false };
         }
 
-        // 🔔 ETA (ONLY ONCE)
-        if (etaMinutes <= 5 && etaMinutes > 1 && !alertState[key].etaSent) {
+        // 🔔 ETA
+        if (eta <= 5 && eta > 1 && !alertState[key].etaSent) {
           io.to(`bus_${bus._id}`).emit("alert", {
             type: "ETA_5_MIN",
-            parentId: parent._id,
             message: "Bus will reach in ~5 minutes",
           });
+
+          if (parent.fcmToken) {
+            await sendNotification(
+              parent.fcmToken,
+              "Bus arriving soon",
+              "Bus will reach in ~5 minutes"
+            );
+          }
 
           alertState[key].etaSent = true;
         }
 
-        // 🔔 ARRIVED (ONLY ONCE)
+        // 🔔 ARRIVED
         if (distance <= 100 && !alertState[key].arrivedSent) {
           io.to(`bus_${bus._id}`).emit("alert", {
             type: "ARRIVED",
-            parentId: parent._id,
-            message: "Bus has arrived at pickup location",
+            message: "Bus has arrived",
           });
+
+          if (parent.fcmToken) {
+            await sendNotification(
+              parent.fcmToken,
+              "Bus Arrived",
+              "Bus has reached pickup location"
+            );
+          }
 
           alertState[key].arrivedSent = true;
         }
@@ -284,137 +231,80 @@ io.on("connection", (socket) => {
         lng,
         lastLocationUpdatedAt: now,
       });
-    } catch (error) {
-      console.error("Socket driverLocation error:", error);
-      socket.emit("trackingError", {
-        message: "Failed to update driver location",
-      });
+    } catch (err) {
+      console.error(err);
     }
   });
 
-  // ---------------------------
-  // Trip start event
-  // Only notify that bus room
-  // ---------------------------
-  socket.on("trip:start", async (payload = {}) => {
+  // ================= TRIP START =================
+  socket.on("trip:start", async ({ driverId, busId }) => {
     try {
-      const { driverId, busId } = payload;
-      console.log("🚀 Trip start received:", payload);
-      if (!driverId || !busId) {
-        socket.emit("trackingError", {
-          message: "driverId and busId are required to start trip",
-        });
-        return;
-      }
-
       const driver = await Driver.findById(driverId);
       const bus = await Bus.findById(busId);
 
-      if (!driver || !bus) {
-        socket.emit("trackingError", {
-          message: "Driver or bus not found",
-        });
-        return;
-      }
-
-      if (!driver.busId || String(driver.busId) !== String(busId)) {
-        socket.emit("trackingError", {
-          message: "Driver is not assigned to this bus",
-        });
-        return;
-      }
+      if (!driver || !bus) return;
 
       driver.isOnTrip = true;
       await driver.save();
 
       bus.tripStatus = "started";
-      bus.tripStartedAt = new Date();
-      bus.tripEndedAt = null;
       await bus.save();
 
-      io.to(`bus_${busId}`).emit("tripStatus", {
-        busId,
-        status: "started",
-        at: Date.now(),
-      });
-      // 🧹 Reset alert state for this bus (new trip)
-      Object.keys(alertState).forEach(key => {
-        if (key.endsWith(`_${busId}`)) {
-          delete alertState[key];
-        }
-      });
-      // 🔔 ALERT: Trip Started
       io.to(`bus_${busId}`).emit("alert", {
         type: "TRIP_STARTED",
         message: "Bus trip has started",
       });
-    } catch (error) {
-      console.error("Socket trip:start error:", error);
-      socket.emit("trackingError", {
-        message: "Failed to start trip",
+
+      // 🔔 FCM
+      const parents = await Parent.find({
+        schoolId: driver.schoolId,
+      }).populate("children");
+
+      for (const parent of parents) {
+        const linked = parent.children?.some(
+          (c) => String(c.busId) === String(busId)
+        );
+        if (!linked) continue;
+
+        if (parent.fcmToken) {
+          await sendNotification(
+            parent.fcmToken,
+            "Trip Started",
+            "Bus trip has started"
+          );
+        }
+      }
+
+      Object.keys(alertState).forEach((k) => {
+        if (k.endsWith(`_${busId}`)) delete alertState[k];
       });
+
+    } catch (err) {
+      console.error(err);
     }
   });
 
-  // ---------------------------
-  // Trip end event
-  // Only notify that bus room
-  // ---------------------------
-  socket.on("trip:end", async (payload = {}) => {
+  // ================= TRIP END =================
+  socket.on("trip:end", async ({ driverId, busId }) => {
     try {
-      const { driverId, busId } = payload;
-
-      if (!driverId || !busId) {
-        socket.emit("trackingError", {
-          message: "driverId and busId are required to end trip",
-        });
-        return;
-      }
-
       const driver = await Driver.findById(driverId);
       const bus = await Bus.findById(busId);
 
-      if (!driver || !bus) {
-        socket.emit("trackingError", {
-          message: "Driver or bus not found",
-        });
-        return;
-      }
-
-      if (!driver.busId || String(driver.busId) !== String(busId)) {
-        socket.emit("trackingError", {
-          message: "Driver is not assigned to this bus",
-        });
-        return;
-      }
+      if (!driver || !bus) return;
 
       driver.isOnTrip = false;
       await driver.save();
 
       bus.tripStatus = "ended";
-      bus.tripEndedAt = new Date();
       await bus.save();
 
-      io.to(`bus_${busId}`).emit("tripStatus", {
-        busId,
-        status: "ended",
-        at: Date.now(),
-      });
-      Object.keys(alertState).forEach(key => {
-        if (key.endsWith(`_${busId}`)) {
-          delete alertState[key];
-        }
-      });
-      // 🔔 ALERT: Trip Ended
       io.to(`bus_${busId}`).emit("alert", {
         type: "TRIP_ENDED",
-        message: "Bus trip has ended",
+        message: "Bus trip ended",
       });
-    } catch (error) {
-      console.error("Socket trip:end error:", error);
-      socket.emit("trackingError", {
-        message: "Failed to end trip",
-      });
+
+    } catch (err) {
+      console.error(err);
     }
   });
 
@@ -424,10 +314,7 @@ io.on("connection", (socket) => {
 });
 
 // ---------------------------
-// Start server
-// ---------------------------
 const PORT = process.env.PORT || 5000;
-
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server running on ${PORT}`);
 });

@@ -294,3 +294,17 @@ exports.setParentLocation = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
+
+exports.saveFcmToken = async (req, res) => {
+  const { token } = req.body;
+
+  try {
+    await Parent.findByIdAndUpdate(req.user.id, {
+      fcmToken: token,
+    });
+
+    res.json({ message: "Token saved successfully" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};

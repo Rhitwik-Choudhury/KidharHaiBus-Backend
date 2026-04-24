@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const { saveFcmToken } = require("../controllers/parentController");
 
 const {
   registerParent,
@@ -21,5 +22,7 @@ router.post("/login", loginParent);
 // Protected routes
 router.get("/me", auth, getMyProfile);
 router.get("/my-bus", auth, getMyBus);
+
+router.post("/save-fcm-token", auth, saveFcmToken);
 
 module.exports = router;
