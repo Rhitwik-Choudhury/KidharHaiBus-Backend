@@ -6,6 +6,7 @@ const { Server } = require("socket.io");
 
 const Driver = require("./models/Driver");
 const Bus = require("./models/Bus");
+const alertState = {};
 
 // ---------------------------
 // Load ENV FIRST
@@ -245,20 +246,35 @@ io.on("connection", (socket) => {
         const speed = 8.33;
         const etaMinutes = (distance / speed) / 60;
 
-        if (etaMinutes <= 10) {
+        const key = `${parent._id}_${bus._id}`;
+
+        if (!alertState[key]) {
+          alertState[key] = {
+            etaSent: false,
+            arrivedSent: false,
+          };
+        }
+
+        // 🔔 ETA (ONLY ONCE)
+        if (etaMinutes <= 5 && etaMinutes > 1 && !alertState[key].etaSent) {
           io.to(`bus_${bus._id}`).emit("alert", {
             type: "ETA_5_MIN",
             parentId: parent._id,
             message: "Bus will reach in ~5 minutes",
           });
+
+          alertState[key].etaSent = true;
         }
 
-        if (distance <= 2000) {
+        // 🔔 ARRIVED (ONLY ONCE)
+        if (distance <= 100 && !alertState[key].arrivedSent) {
           io.to(`bus_${bus._id}`).emit("alert", {
             type: "ARRIVED",
             parentId: parent._id,
             message: "Bus has arrived at pickup location",
           });
+
+          alertState[key].arrivedSent = true;
         }
       }
 
@@ -321,6 +337,12 @@ io.on("connection", (socket) => {
         status: "started",
         at: Date.now(),
       });
+      // 🧹 Reset alert state for this bus (new trip)
+      Object.keys(alertState).forEach(key => {
+        if (key.endsWith(`_${busId}`)) {
+          delete alertState[key];
+        }
+      });
       // 🔔 ALERT: Trip Started
       io.to(`bus_${busId}`).emit("alert", {
         type: "TRIP_STARTED",
@@ -377,6 +399,11 @@ io.on("connection", (socket) => {
         busId,
         status: "ended",
         at: Date.now(),
+      });
+      Object.keys(alertState).forEach(key => {
+        if (key.endsWith(`_${busId}`)) {
+          delete alertState[key];
+        }
       });
       // 🔔 ALERT: Trip Ended
       io.to(`bus_${busId}`).emit("alert", {
