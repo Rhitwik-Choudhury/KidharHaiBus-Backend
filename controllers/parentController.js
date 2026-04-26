@@ -182,8 +182,10 @@ exports.getMyProfile = async (req, res) => {
         path: "children",
         populate: {
           path: "busId",
-          select:
-            "busNumber carNumber route capacity studentCount currentLocation tripStatus lastLocationUpdatedAt driverId",
+          populate: {
+            path: "driverId",   // 👈 THIS IS CRITICAL
+            select: "fullName email",
+          },
         },
       });
 
