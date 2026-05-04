@@ -10,6 +10,7 @@ const Parent = require("./models/Parent"); // ✅ moved here (global use)
 const sendNotification = require("./utils/sendNotification");
 
 const alertState = {};
+const lastProcessedTime = {};
 
 // ---------------------------
 // Load ENV FIRST
@@ -135,6 +136,14 @@ io.on("connection", (socket) => {
     try {
       const { driverId, busId, lat, lng } = data;
 
+      const nowTime = Date.now();
+
+      if (lastProcessedTime[busId] && nowTime - lastProcessedTime[busId] < 2000) {
+        return;
+      }
+
+      lastProcessedTime[busId] = nowTime;
+
       const driver = await Driver.findById(driverId);
       const bus = await Bus.findById(busId);
 
@@ -152,15 +161,11 @@ io.on("connection", (socket) => {
 
       const parents = await Parent.find({
         schoolId: driver.schoolId,
-      }).populate("children");
+        busId: bus._id
+      }).select("fcmToken stopLocation");
 
       for (const parent of parents) {
         if (!parent.stopLocation) continue;
-
-        const isLinked = parent.children?.some(
-          (child) => String(child.busId) === String(bus._id)
-        );
-        if (!isLinked) continue;
 
         const getDistance = (a, b, c, d) => {
           const R = 6371e3;
@@ -231,6 +236,8 @@ io.on("connection", (socket) => {
         lng,
         lastLocationUpdatedAt: now,
       });
+
+      console.log("📍 DRIVER LOCATION:", data);
     } catch (err) {
       console.error(err);
     }
@@ -250,6 +257,10 @@ io.on("connection", (socket) => {
       bus.tripStatus = "started";
       await bus.save();
 
+      io.to(`bus_${busId}`).emit("tripStatus", {
+        status: "started",
+      });
+
       io.to(`bus_${busId}`).emit("alert", {
         type: "TRIP_STARTED",
         message: "Bus trip has started",
@@ -258,14 +269,10 @@ io.on("connection", (socket) => {
       // 🔔 FCM
       const parents = await Parent.find({
         schoolId: driver.schoolId,
-      }).populate("children");
+        busId: bus._id
+      }).select("fcmToken stopLocation");
 
       for (const parent of parents) {
-        const linked = parent.children?.some(
-          (c) => String(c.busId) === String(busId)
-        );
-        if (!linked) continue;
-
         if (parent.fcmToken) {
           await sendNotification(
             parent.fcmToken,
@@ -297,6 +304,10 @@ io.on("connection", (socket) => {
 
       bus.tripStatus = "ended";
       await bus.save();
+
+      io.to(`bus_${busId}`).emit("tripStatus", {
+        status: "ended",
+      });
 
       io.to(`bus_${busId}`).emit("alert", {
         type: "TRIP_ENDED",

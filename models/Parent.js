@@ -54,6 +54,12 @@ const parentSchema = new mongoose.Schema(
       trim: true,
     },
 
+    busId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Bus",
+      index: true,
+    },
+
     children: [
       {
         type: mongoose.Schema.Types.ObjectId,

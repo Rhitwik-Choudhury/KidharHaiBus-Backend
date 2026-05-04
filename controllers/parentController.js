@@ -101,6 +101,7 @@ exports.registerParent = async (req, res) => {
       studentCode: studentCode ? studentCode.trim().toUpperCase() : null,
       schoolId,
       children: linkedStudent ? [linkedStudent._id] : [],
+      busId: linkedStudent ? linkedStudent.busId : null,
     };
 
     const parent = await Parent.create(parentData);

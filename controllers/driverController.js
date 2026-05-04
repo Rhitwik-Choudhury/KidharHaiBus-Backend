@@ -393,17 +393,13 @@ exports.updateDriverLocation = async (req, res) => {
 
     const parents = await Parent.find({
       schoolId: driver.schoolId,
-    }).populate("children");
+      busId: bus._id
+    });
 
     for (const parent of parents) {
       if (!parent.stopLocation) continue;
 
       // 🔴 FILTER: only parents whose child is in this bus
-      const isLinkedToBus = parent.children?.some(
-        (child) => String(child.busId) === String(bus._id)
-      );
-
-      if (!isLinkedToBus) continue;
 
       const { lat: pLat, lng: pLng } = parent.stopLocation;
 

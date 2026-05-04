@@ -1,9 +1,23 @@
-const admin = require("firebase-admin");
+let admin = null;
 
-const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+try {
+  const firebaseConfig = process.env.FIREBASE_SERVICE_ACCOUNT;
 
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-});
+  if (firebaseConfig) {
+    const serviceAccount = JSON.parse(firebaseConfig);
+
+    admin = require("firebase-admin");
+
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+    });
+
+    console.log("Firebase initialized");
+  } else {
+    console.log("Firebase not configured, skipping...");
+  }
+} catch (err) {
+  console.log("Firebase init error:", err.message);
+}
 
 module.exports = admin;
