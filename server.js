@@ -200,12 +200,16 @@ io.on("connection", (socket) => {
             message: "Bus will reach in ~5 minutes",
           });
 
-          if (parent.fcmToken) {
-            await sendNotification(
-              parent.fcmToken,
-              "Bus arriving soon",
-              "Bus will reach in ~5 minutes"
-            );
+          if (parent.fcmToken && typeof parent.fcmToken === "string") {
+            try {
+              await sendNotification(
+                parent.fcmToken,
+                "Title",
+                "Message"
+              );
+            } catch (err) {
+              console.log("⚠️ Notification skipped:", err.message);
+            }
           }
 
           alertState[key].etaSent = true;
@@ -218,12 +222,16 @@ io.on("connection", (socket) => {
             message: "Bus has arrived",
           });
 
-          if (parent.fcmToken) {
-            await sendNotification(
-              parent.fcmToken,
-              "Bus Arrived",
-              "Bus has reached pickup location"
-            );
+          if (parent.fcmToken && typeof parent.fcmToken === "string") {
+            try {
+              await sendNotification(
+                parent.fcmToken,
+                "Title",
+                "Message"
+              );
+            } catch (err) {
+              console.log("⚠️ Notification skipped:", err.message);
+            }
           }
 
           alertState[key].arrivedSent = true;
@@ -273,12 +281,16 @@ io.on("connection", (socket) => {
       }).select("fcmToken stopLocation");
 
       for (const parent of parents) {
-        if (parent.fcmToken) {
-          await sendNotification(
-            parent.fcmToken,
-            "Trip Started",
-            "Bus trip has started"
-          );
+        if (parent.fcmToken && typeof parent.fcmToken === "string") {
+          try {
+            await sendNotification(
+              parent.fcmToken,
+              "Title",
+              "Message"
+            );
+          } catch (err) {
+            console.log("⚠️ Notification skipped:", err.message);
+          }
         }
       }
 
