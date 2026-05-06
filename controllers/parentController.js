@@ -154,8 +154,8 @@ exports.loginParent = async (req, res) => {
     return res.status(200).json({
       message: "Login successful",
       token,
-      user: {
-        id: parent._id.toString(),
+      parent: {
+        _id: parent._id,
         fullName: parent.fullName,
         email: parent.email,
         studentCode: parent.studentCode || null,

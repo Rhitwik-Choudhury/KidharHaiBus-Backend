@@ -204,8 +204,8 @@ io.on("connection", (socket) => {
             try {
               await sendNotification(
                 parent.fcmToken,
-                "Title",
-                "Message"
+                "Bus Arriving Soon",
+                "Bus will reach in ~5 minutes"
               );
             } catch (err) {
               console.log("⚠️ Notification skipped:", err.message);
@@ -226,8 +226,8 @@ io.on("connection", (socket) => {
             try {
               await sendNotification(
                 parent.fcmToken,
-                "Title",
-                "Message"
+                "Bus Arrived",
+                "Bus has reached pickup location"
               );
             } catch (err) {
               console.log("⚠️ Notification skipped:", err.message);
@@ -285,8 +285,8 @@ io.on("connection", (socket) => {
           try {
             await sendNotification(
               parent.fcmToken,
-              "Title",
-              "Message"
+              "Trip Started",
+              "Bus trip has started"
             );
           } catch (err) {
             console.log("⚠️ Notification skipped:", err.message);
