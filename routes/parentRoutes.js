@@ -13,13 +13,13 @@ const {
 
 const auth = require("../middleware/authMiddleware");
 
-router.post('/set-pickup-location', auth, setParentLocation);
 router.post("/send-otp", sendParentOTP);
 // Public routes
 router.post("/signup", registerParent);
 router.post("/login", loginParent);
 
 // Protected routes
+router.post('/set-pickup-location', auth, setParentLocation);
 router.get("/me", auth, getMyProfile);
 router.get("/my-bus", auth, getMyBus);
 
