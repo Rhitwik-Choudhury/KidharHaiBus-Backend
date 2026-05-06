@@ -17,6 +17,16 @@ const parentSchema = new mongoose.Schema(
       lng: Number
     },
 
+    lastEtaAlert: {
+      type: Date,
+      default: null,
+    },
+
+    lastArrivedAlert: {
+      type: Date,
+      default: null,
+    },
+
     whatsappOptIn: {
       type: Boolean,
       default: false

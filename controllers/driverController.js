@@ -8,6 +8,9 @@ const { sendOTP } = require("../utils/emailService");
 const Otp = require("../models/Otp");
 const DEFAULT_SCHOOL_ID = "69baa1fdc6a849a65b8a5740";
 
+const sendNotification = require("../utils/sendNotification");
+const Parent = require("../models/Parent");
+
 // ================= HELPER: DISTANCE (Haversine) =================
 const getDistanceInMeters = (lat1, lon1, lat2, lon2) => {
   const R = 6371e3;
@@ -264,6 +267,21 @@ exports.startTrip = async (req, res) => {
         type: "TRIP_STARTED",
         message: "Bus has started the trip",
       });
+
+      const parents = await Parent.find({
+        schoolId: driver.schoolId,
+        busId: bus._id
+      });
+
+      for (const parent of parents) {
+        if (parent.fcmToken) {
+          await sendNotification(
+            parent.fcmToken,
+            "Trip Started 🚍",
+            "Bus has started the trip"
+          );
+        }
+      }
     }
 
     res.status(200).json({
@@ -409,21 +427,41 @@ exports.updateDriverLocation = async (req, res) => {
       const etaMinutes = (distance / speed) / 60;
 
       // 🔔 ETA 5 MIN (trigger once approx)
-      if (etaMinutes <= 5 && etaMinutes > 4.8) {
+      if (etaMinutes <= 5 && etaMinutes > 4.8 && !parent.lastEtaAlert) {
         req.io?.to(`bus_${bus._id}`).emit("alert", {
           type: "ETA_5_MIN",
           parentId: parent._id,
           message: "Bus will reach in ~5 minutes",
         });
+
+        if (parent.fcmToken) {
+          await sendNotification(
+            parent.fcmToken,
+            "Bus Arriving Soon ⏳",
+            "Bus will reach in ~5 minutes"
+          );
+          parent.lastEtaAlert = new Date();
+          await parent.save();
+        }
       }
 
       // 🔔 ARRIVED (very close range)
-      if (distance <= 80) {
+      if (distance <= 80 && !parent.lastArrivedAlert) {
         req.io?.to(`bus_${bus._id}`).emit("alert", {
           type: "ARRIVED",
           parentId: parent._id,
           message: "Bus has arrived at pickup location",
         });
+
+        if (parent.fcmToken) {
+          await sendNotification(
+            parent.fcmToken,
+            "Bus Arrived 📍",
+            "Bus has arrived at pickup location"
+          );
+          parent.lastArrivedAlert = new Date();
+          await parent.save();
+        }
       }
     }
 
