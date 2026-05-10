@@ -161,11 +161,17 @@ io.on("connection", (socket) => {
 
       const parents = await Parent.find({
         schoolId: driver.schoolId,
-        busId: bus._id
+        busId: bus._id,
       }).select("fcmToken stopLocation");
 
       for (const parent of parents) {
-        if (!parent.stopLocation) continue;
+        if (
+          !parent.stopLocation ||
+          parent.stopLocation.lat == null ||
+          parent.stopLocation.lng == null
+        ) {
+          continue;
+        }
 
         const getDistance = (a, b, c, d) => {
           const R = 6371e3;
@@ -194,7 +200,7 @@ io.on("connection", (socket) => {
         }
 
         // 🔔 ETA
-        if (eta <= 5 && eta > 1 && !alertState[key].etaSent) {
+        if (eta <= 5 && !alertState[key].etaSent) {
           io.to(`bus_${bus._id}`).emit("alert", {
             type: "ETA_5_MIN",
             message: "Bus will reach in ~5 minutes",
@@ -245,7 +251,6 @@ io.on("connection", (socket) => {
         lastLocationUpdatedAt: now,
       });
 
-      console.log("📍 DRIVER LOCATION:", data);
     } catch (err) {
       console.error(err);
     }
@@ -277,7 +282,7 @@ io.on("connection", (socket) => {
       // 🔔 FCM
       const parents = await Parent.find({
         schoolId: driver.schoolId,
-        busId: bus._id
+        busId: bus._id,
       }).select("fcmToken stopLocation");
 
       for (const parent of parents) {
@@ -325,6 +330,27 @@ io.on("connection", (socket) => {
         type: "TRIP_ENDED",
         message: "Bus trip ended",
       });
+
+      // 🔔 FCM FOR TRIP END
+      const parents = await Parent.find({
+        schoolId: driver.schoolId,
+        busId: bus._id,
+      }).select("fcmToken");
+
+      for (const parent of parents) {
+
+        if (parent.fcmToken && typeof parent.fcmToken === "string") {
+          try {
+            await sendNotification(
+              parent.fcmToken,
+              "Trip Ended",
+              "Bus trip has ended"
+            );
+          } catch (err) {
+            console.log("⚠️ Notification skipped:", err.message);
+          }
+        }
+      }
 
     } catch (err) {
       console.error(err);

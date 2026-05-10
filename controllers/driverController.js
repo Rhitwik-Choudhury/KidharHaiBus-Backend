@@ -257,6 +257,7 @@ exports.startTrip = async (req, res) => {
     const io = req.io;
 
     if (io) {
+      console.log("📡 EMITTING TRIP STATUS STARTED");
       io.to(`bus_${bus._id}`).emit("tripStatus", {
         busId: bus._id,
         status: "started",
@@ -335,6 +336,7 @@ exports.endTrip = async (req, res) => {
     const io = req.io;
 
     if (io) {
+      console.log("📡 EMITTING TRIP STATUS ENDED");
       io.to(`bus_${bus._id}`).emit("tripStatus", {
         busId: bus._id,
         status: "ended",
