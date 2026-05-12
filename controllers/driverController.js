@@ -469,12 +469,18 @@ exports.updateDriverLocation = async (req, res) => {
 
     // ================= LOCATION UPDATE =================
     if (req.io) {
-      req.io.to(`bus_${bus._id}`).emit("busLocationUpdated", {
+      const payload = {
         busId: bus._id,
         lat,
         lng,
         lastLocationUpdatedAt: now,
-      });
+      };
+
+      // ✅ Existing event from REST background location flow
+      req.io.to(`bus_${bus._id}`).emit("busLocationUpdated", payload);
+
+      // ✅ Same event name used by parent.tsx foreground socket flow
+      req.io.to(`bus_${bus._id}`).emit("location-update", payload);
     }
 
     res.status(200).json({
