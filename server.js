@@ -199,29 +199,7 @@ io.on("connection", (socket) => {
           alertState[key] = { etaSent: false, arrivedSent: false };
         }
 
-        // 🔔 ETA
-        if (eta <= 5 && !alertState[key].etaSent) {
-          io.to(`bus_${bus._id}`).emit("alert", {
-            type: "ETA_5_MIN",
-            message: "Bus will reach in ~5 minutes",
-          });
-
-          if (parent.fcmToken && typeof parent.fcmToken === "string") {
-            try {
-              await sendNotification(
-                parent.fcmToken,
-                "Bus Arriving Soon",
-                "Bus will reach in ~5 minutes"
-              );
-            } catch (err) {
-              console.log("⚠️ Notification skipped:", err.message);
-            }
-          }
-
-          alertState[key].etaSent = true;
-        }
-
-        // 🔔 ARRIVED
+        // 🔔 ARRIVED has highest priority
         if (distance <= 100 && !alertState[key].arrivedSent) {
           io.to(`bus_${bus._id}`).emit("alert", {
             type: "ARRIVED",
@@ -241,6 +219,38 @@ io.on("connection", (socket) => {
           }
 
           alertState[key].arrivedSent = true;
+
+          // ✅ Important: prevent ETA after already arrived
+          alertState[key].etaSent = true;
+
+          continue;
+        }
+
+        // 🔔 ETA only if bus is not already at pickup location
+        if (
+          distance > 100 &&
+          eta >= 1 &&
+          eta <= 5 &&
+          !alertState[key].etaSent
+        ) {
+          io.to(`bus_${bus._id}`).emit("alert", {
+            type: "ETA_5_MIN",
+            message: "Bus will reach in ~5 minutes",
+          });
+
+          if (parent.fcmToken && typeof parent.fcmToken === "string") {
+            try {
+              await sendNotification(
+                parent.fcmToken,
+                "Bus Arriving Soon",
+                "Bus will reach in ~5 minutes"
+              );
+            } catch (err) {
+              console.log("⚠️ Notification skipped:", err.message);
+            }
+          }
+
+          alertState[key].etaSent = true;
         }
       }
 

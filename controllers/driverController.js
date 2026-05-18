@@ -428,26 +428,7 @@ exports.updateDriverLocation = async (req, res) => {
       const speed = 8.33; // m/s (~30km/h)
       const etaMinutes = (distance / speed) / 60;
 
-      // 🔔 ETA 5 MIN (trigger once approx)
-      if (etaMinutes <= 5 && etaMinutes > 4.8 && !parent.lastEtaAlert) {
-        req.io?.to(`bus_${bus._id}`).emit("alert", {
-          type: "ETA_5_MIN",
-          parentId: parent._id,
-          message: "Bus will reach in ~5 minutes",
-        });
-
-        if (parent.fcmToken) {
-          await sendNotification(
-            parent.fcmToken,
-            "Bus Arriving Soon ⏳",
-            "Bus will reach in ~5 minutes"
-          );
-          parent.lastEtaAlert = new Date();
-          await parent.save();
-        }
-      }
-
-      // 🔔 ARRIVED (very close range)
+      // 🔔 ARRIVED has highest priority
       if (distance <= 80 && !parent.lastArrivedAlert) {
         req.io?.to(`bus_${bus._id}`).emit("alert", {
           type: "ARRIVED",
@@ -461,26 +442,52 @@ exports.updateDriverLocation = async (req, res) => {
             "Bus Arrived 📍",
             "Bus has arrived at pickup location"
           );
-          parent.lastArrivedAlert = new Date();
-          await parent.save();
         }
+
+        parent.lastArrivedAlert = new Date();
+
+        // ✅ Important: prevent ETA after already arrived
+        parent.lastEtaAlert = new Date();
+
+        await parent.save();
+
+        continue;
+      }
+
+      // 🔔 ETA only if bus is not already at pickup location
+      if (
+        etaMinutes > 1 &&
+        etaMinutes <= 5 &&
+        etaMinutes > 4.8 &&
+        !parent.lastEtaAlert
+      ) {
+        req.io?.to(`bus_${bus._id}`).emit("alert", {
+          type: "ETA_5_MIN",
+          parentId: parent._id,
+          message: "Bus will reach in ~5 minutes",
+        });
+
+        if (parent.fcmToken) {
+          await sendNotification(
+            parent.fcmToken,
+            "Bus Arriving Soon ⏳",
+            "Bus will reach in ~5 minutes"
+          );
+        }
+
+        parent.lastEtaAlert = new Date();
+        await parent.save();
       }
     }
 
     // ================= LOCATION UPDATE =================
     if (req.io) {
-      const payload = {
+      req.io.to(`bus_${bus._id}`).emit("location-update", {
         busId: bus._id,
         lat,
         lng,
         lastLocationUpdatedAt: now,
-      };
-
-      // ✅ Existing event from REST background location flow
-      req.io.to(`bus_${bus._id}`).emit("busLocationUpdated", payload);
-
-      // ✅ Same event name used by parent.tsx foreground socket flow
-      req.io.to(`bus_${bus._id}`).emit("location-update", payload);
+      });
     }
 
     res.status(200).json({
