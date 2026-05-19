@@ -6,6 +6,24 @@ const Bus = require('../models/Bus');
 const { sendOTP } = require("../utils/emailService");
 const Otp = require("../models/Otp");
 
+const generateSchoolCode = async (schoolName) => {
+  const prefix = schoolName
+    .replace(/[^a-zA-Z]/g, "")
+    .substring(0, 3)
+    .toUpperCase() || "SCH";
+
+  let code;
+  let exists = true;
+
+  while (exists) {
+    const randomPart = Math.random().toString(36).substring(2, 6).toUpperCase();
+    code = `SCH-${prefix}-${randomPart}`;
+    exists = await School.findOne({ schoolCode: code });
+  }
+
+  return code;
+};
+
 // ================= SEND OTP =================
 exports.sendSchoolOTP = async (req, res) => {
   try {
@@ -55,23 +73,29 @@ exports.registerSchool = async (req, res) => {
   await Otp.deleteOne({ email: emailNormalized });
 
   try {
-    const existingSchool = await School.findOne({ email });
+    const existingSchool = await School.findOne({ email: emailNormalized });
     if (existingSchool) {
       return res.status(400).json({ message: 'Email already registered' });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    const schoolCode = await generateSchoolCode(schoolName);
+
     const newSchool = new School({
       schoolName,
       adminName,
-      email,
+      email: emailNormalized,
       password: hashedPassword,
+      schoolCode,
     });
 
     await newSchool.save();
 
-    res.status(201).json({ message: 'School registered successfully' });
+    res.status(201).json({
+      message: 'School registered successfully',
+      schoolCode,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server Error' });
@@ -107,6 +131,7 @@ exports.loginSchool = async (req, res) => {
         schoolName: school.schoolName,
         adminName: school.adminName,
         email: school.email,
+        schoolCode: school.schoolCode,
       },
     });
   } catch (err) {

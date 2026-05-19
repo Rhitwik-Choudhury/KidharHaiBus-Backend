@@ -1,12 +1,11 @@
 const Driver = require("../models/Driver");
 const Bus = require("../models/Bus");
+const School = require("../models/School");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
-const FIXED_DRIVER_CODE = "DRIVER2025";
 const { sendOTP } = require("../utils/emailService");
 const Otp = require("../models/Otp");
-const DEFAULT_SCHOOL_ID = "69baa1fdc6a849a65b8a5740";
 
 const sendNotification = require("../utils/sendNotification");
 const Parent = require("../models/Parent");
@@ -88,9 +87,15 @@ exports.registerDriver = async (req, res) => {
 
     await Otp.deleteOne({ email: emailNormalized });
 
-    // ✅ DRIVER CODE CHECK
-    if (driverCode !== FIXED_DRIVER_CODE) {
-      return res.status(403).json({ message: "Invalid driver code" });
+    // ✅ SCHOOL CODE CHECK
+    const enteredSchoolCode = driverCode.trim().toUpperCase();
+
+    const school = await School.findOne({ schoolCode: enteredSchoolCode });
+
+    if (!school) {
+      return res.status(403).json({
+        message: "Invalid school code. Please contact your school admin.",
+      });
     }
 
     const existingDriver = await Driver.findOne({ email: emailNormalized });
@@ -104,8 +109,8 @@ exports.registerDriver = async (req, res) => {
       fullName,
       email: emailNormalized,
       password: hashedPassword,
-      driverCode,
-      schoolId: DEFAULT_SCHOOL_ID,
+      driverCode: enteredSchoolCode,
+      schoolId: school._id,
       busId: null,
       isOnTrip: false,
     });
