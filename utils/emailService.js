@@ -13,7 +13,7 @@ const sendOTP = async (to, otp) => {
           <h2>Trackefy Verification</h2>
           <p>Your OTP is:</p>
           <h1 style="color: #2563eb;">${otp}</h1>
-          <p>This OTP is valid for 5 minutes.</p>
+          <p>This OTP is valid for 1 minute.</p>
         </div>
       `,
     });

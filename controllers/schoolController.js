@@ -37,7 +37,7 @@ exports.sendSchoolOTP = async (req, res) => {
     await Otp.create({
       email: emailNormalized,
       otp: otp.toString(),
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+      expiresAt: new Date(Date.now() + 1 * 60 * 1000),
     });
 
     const emailSent = await sendOTP(email, otp);
@@ -48,7 +48,6 @@ exports.sendSchoolOTP = async (req, res) => {
 
     res.status(200).json({
       message: "OTP sent successfully",
-      otp, // ⚠️ remove later in production
     });
   } catch (err) {
     console.error(err);

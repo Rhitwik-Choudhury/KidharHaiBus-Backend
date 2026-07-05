@@ -14,12 +14,12 @@ exports.sendParentOTP = async (req, res) => {
 
     const otp = Math.floor(100000 + Math.random() * 900000);
 
-    await Otp.deleteMany({ email });
+    await Otp.deleteMany({ email: emailNormalized });
 
     await Otp.create({
       email: emailNormalized,
       otp: otp.toString(),
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+      expiresAt: new Date(Date.now() + 1 * 60 * 1000),
     });
 
     const emailSent = await sendOTP(email, otp);
@@ -30,7 +30,6 @@ exports.sendParentOTP = async (req, res) => {
 
     res.status(200).json({
       message: "OTP sent successfully",
-      otp, // ⚠️ remove later
     });
   } catch (err) {
     console.error(err);
