@@ -108,7 +108,7 @@ exports.registerParent = async (req, res) => {
     const token = jwt.sign(
       { id: parent._id.toString(), role: "parent" },
       process.env.JWT_SECRET,
-      { expiresIn: "1d" }
+      { expiresIn: "30d" }
     );
 
     return res.status(201).json({
@@ -147,7 +147,7 @@ exports.loginParent = async (req, res) => {
     const token = jwt.sign(
       { id: parent._id.toString(), role: "parent" },
       process.env.JWT_SECRET,
-      { expiresIn: "1d" }
+      { expiresIn: "30d" }
     );
 
     return res.status(200).json({

@@ -144,7 +144,7 @@ exports.loginDriver = async (req, res) => {
     const token = jwt.sign(
       { id: driver._id, role: "driver" },
       process.env.JWT_SECRET,
-      { expiresIn: "1d" }
+      { expiresIn: "30d" }
     );
 
     res.status(200).json({
