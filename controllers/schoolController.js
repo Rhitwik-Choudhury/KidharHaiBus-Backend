@@ -17,7 +17,7 @@ const generateSchoolCode = async (schoolName) => {
 
   while (exists) {
     const randomPart = Math.random().toString(36).substring(2, 6).toUpperCase();
-    code = `SCH-${prefix}-${randomPart}`;
+    code = `SCH${prefix}${randomPart}`;
     exists = await School.findOne({ schoolCode: code });
   }
 
@@ -147,24 +147,32 @@ exports.addStudent = async (req, res) => {
       roll,
       address,
       class: studentClass,
-      busId,              // ✅ FIXED
+      busId,
       studentCode,
       schoolId,
     } = req.body;
 
-    console.log("Incoming student data:", req.body); // debug
+    const normalizedStudentCode = studentCode
+      ?.trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "");
+
+    if (!normalizedStudentCode) {
+      return res.status(400).json({
+        message: "Student code is required"
+      });
+    }
 
     const newStudent = await Student.create({
       name,
       roll,
       address,
       class: studentClass,
-      busId,              // ✅ FIXED
-      studentCode,
+      busId,
+      studentCode: normalizedStudentCode,
       schoolId,
     });
 
-    // 🔥 Increment student count
     if (busId) {
       await Bus.findByIdAndUpdate(busId, {
         $inc: { studentCount: 1 },
@@ -172,9 +180,15 @@ exports.addStudent = async (req, res) => {
     }
 
     res.status(201).json(newStudent);
-
   } catch (error) {
     console.error("Add Student Error:", error);
+
+    if (error.code === 11000 && error.keyPattern?.studentCode) {
+      return res.status(409).json({
+        message: "This student code already exists"
+      });
+    }
+
     res.status(500).json({ message: error.message });
   }
 };

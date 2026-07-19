@@ -87,7 +87,7 @@ exports.registerDriver = async (req, res) => {
     await Otp.deleteOne({ email: emailNormalized });
 
     // ✅ SCHOOL CODE CHECK
-    const enteredSchoolCode = driverCode.trim().toUpperCase();
+    const enteredSchoolCode = driverCode.trim().toUpperCase().replace(/-/g, "");
 
     const school = await School.findOne({ schoolCode: enteredSchoolCode });
 
