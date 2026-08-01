@@ -258,6 +258,21 @@ exports.startTrip = async (req, res) => {
     bus.tripEndedAt = null;
     await bus.save();
 
+    // Reset per-trip notification state so ETA and arrival alerts
+    // can be sent again during this trip.
+    await Parent.updateMany(
+      {
+        schoolId: driver.schoolId,
+        busId: bus._id,
+      },
+      {
+        $set: {
+          lastEtaAlert: null,
+          lastArrivedAlert: null,
+        },
+      }
+    );
+
     const io = req.io;
 
     if (io) {
@@ -341,11 +356,40 @@ exports.endTrip = async (req, res) => {
 
     if (io) {
       console.log("📡 EMITTING TRIP STATUS ENDED");
+
       io.to(`bus_${bus._id}`).emit("tripStatus", {
         busId: bus._id,
         status: "ended",
         at: Date.now(),
       });
+
+      io.to(`bus_${bus._id}`).emit("alert", {
+        type: "TRIP_ENDED",
+        message: "Bus trip has ended",
+      });
+    }
+
+    // Send Trip Ended push notification through the REST path.
+    const parents = await Parent.find({
+      schoolId: driver.schoolId,
+      busId: bus._id,
+    }).select("fcmToken");
+
+    for (const parent of parents) {
+      if (parent.fcmToken && typeof parent.fcmToken === "string") {
+        try {
+          await sendNotification(
+            parent.fcmToken,
+            "Trip Ended",
+            "Bus trip has ended"
+          );
+        } catch (notificationError) {
+          console.log(
+            "Trip Ended notification skipped:",
+            notificationError.message
+          );
+        }
+      }
     }
 
     res.status(200).json({
@@ -413,8 +457,6 @@ exports.updateDriverLocation = async (req, res) => {
     await bus.save();
 
     // ================= ETA + ALERT LOGIC =================
-    const Parent = require("../models/Parent");
-
     const parents = await Parent.find({
       schoolId: driver.schoolId,
       busId: bus._id
