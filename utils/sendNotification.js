@@ -18,25 +18,39 @@ const sendNotification = async (token, title, body) => {
       return;
     }
 
+    const safeTitle = String(title);
+    const safeBody = String(body);
+
     const message = {
       token: token.trim(),
 
-      // Data-only payload. The mobile Notifee handler displays it.
+      // Android displays this automatically when the app is
+      // in the background or closed.
+      notification: {
+        title: safeTitle,
+        body: safeBody,
+      },
+
+      // Existing foreground code can continue reading these.
       data: {
-        title: String(title),
-        body: String(body),
+        title: safeTitle,
+        body: safeBody,
       },
 
       android: {
         priority: "high",
+        notification: {
+          channelId: "default",
+          sound: "default",
+        },
       },
     };
 
-    await admin.messaging().send(message);
+    const messageId = await admin.messaging().send(message);
 
-    console.log("FCM sent successfully");
+    console.log("FCM sent successfully:", messageId);
   } catch (err) {
-    console.error("FCM Error:", err.message);
+    console.error("FCM Error:", err.code || err.message);
   }
 };
 
