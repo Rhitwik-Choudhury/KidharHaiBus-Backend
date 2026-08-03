@@ -1,5 +1,6 @@
 const School = require('../models/School');
 const Student = require('../models/Student');
+const Parent = require('../models/Parent');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const Bus = require('../models/Bus');
@@ -215,41 +216,136 @@ exports.updateStudent = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const existing = await Student.findById(id);
-    if (!existing) {
-      return res.status(404).json({ message: "Student not found" });
+    const existingStudent = await Student.findById(id);
+
+    if (!existingStudent) {
+      return res.status(404).json({
+        message: "Student not found",
+      });
     }
 
-    const oldBusId = existing.busId?.toString();
-    const newBusId = req.body.busId;
+    // Accept either a bus ID string or a populated bus object.
+    const requestedBusId =
+      typeof req.body.busId === "object"
+        ? req.body.busId?._id
+        : req.body.busId;
 
-    // 🔥 handle bus change
-    if (oldBusId !== newBusId) {
-
-      if (oldBusId) {
-        await Bus.findByIdAndUpdate(oldBusId, {
-          $inc: { studentCount: -1 },
-        });
-      }
-
-      if (newBusId) {
-        await Bus.findByIdAndUpdate(newBusId, {
-          $inc: { studentCount: 1 },
-        });
-      }
+    if (!requestedBusId) {
+      return res.status(400).json({
+        message: "A valid bus is required",
+      });
     }
+
+    const selectedBus = await Bus.findById(requestedBusId);
+
+    if (!selectedBus) {
+      return res.status(404).json({
+        message: "Selected bus not found",
+      });
+    }
+
+    // Ensure the selected bus belongs to the student's school.
+    if (
+      selectedBus.schoolId.toString() !==
+      existingStudent.schoolId.toString()
+    ) {
+      return res.status(400).json({
+        message: "Selected bus does not belong to this school",
+      });
+    }
+
+    const oldBusId = existingStudent.busId?.toString() || null;
+    const newBusId = selectedBus._id.toString();
+    const busChanged = oldBusId !== newBusId;
+
+    const allowedUpdates = {
+      name:
+        req.body.name !== undefined
+          ? req.body.name
+          : existingStudent.name,
+
+      roll:
+        req.body.roll !== undefined
+          ? req.body.roll
+          : existingStudent.roll,
+
+      address:
+        req.body.address !== undefined
+          ? req.body.address
+          : existingStudent.address,
+
+      class:
+        req.body.class !== undefined
+          ? req.body.class
+          : existingStudent.class,
+
+      busId: selectedBus._id,
+    };
 
     const updatedStudent = await Student.findByIdAndUpdate(
       id,
-      req.body,
-      { new: true }
+      {
+        $set: allowedUpdates,
+      },
+      {
+        new: true,
+        runValidators: true,
+      }
     ).populate("busId");
 
-    res.status(200).json(updatedStudent);
+    if (busChanged) {
+      // Decrease old bus count without allowing it to become negative.
+      if (oldBusId) {
+        await Bus.findOneAndUpdate(
+          {
+            _id: oldBusId,
+            studentCount: { $gt: 0 },
+          },
+          {
+            $inc: { studentCount: -1 },
+          }
+        );
+      }
 
+      // Increase the newly selected bus count.
+      await Bus.findByIdAndUpdate(newBusId, {
+        $inc: { studentCount: 1 },
+      });
+    }
+
+    // Keep every linked parent on the same bus as the student.
+    const parentUpdateResult = await Parent.updateMany(
+      {
+        $or: [
+          { children: existingStudent._id },
+          { studentCode: existingStudent.studentCode },
+        ],
+      },
+      {
+        $set: {
+          busId: selectedBus._id,
+          schoolId: existingStudent.schoolId,
+        },
+      }
+    );
+
+    console.log("Student updated and parent bus synchronized:", {
+      studentId: existingStudent._id.toString(),
+      studentCode: existingStudent.studentCode,
+      oldBusId,
+      newBusId,
+      busChanged,
+      matchedParents: parentUpdateResult.matchedCount,
+      updatedParents: parentUpdateResult.modifiedCount,
+    });
+
+    return res.status(200).json(updatedStudent);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Failed to update student' });
+    console.error("Update Student Error:", error);
+
+    return res.status(500).json({
+      message: "Failed to update student",
+    });
   }
 };
 
