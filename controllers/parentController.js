@@ -298,15 +298,52 @@ exports.setParentLocation = async (req, res) => {
 };
 
 exports.saveFcmToken = async (req, res) => {
-  const { token } = req.body;
-
   try {
-    await Parent.findByIdAndUpdate(req.user.id, {
-      fcmToken: token,
+    const { token } = req.body;
+
+    if (
+      !token ||
+      typeof token !== "string" ||
+      token.trim().length === 0
+    ) {
+      return res.status(400).json({
+        message: "Valid FCM token is required",
+      });
+    }
+
+    const cleanToken = token.trim();
+
+    const parent = await Parent.findByIdAndUpdate(
+      req.user.id,
+      {
+        $set: {
+          fcmToken: cleanToken,
+        },
+      },
+      {
+        new: true,
+      }
+    );
+
+    if (!parent) {
+      return res.status(404).json({
+        message: "Parent not found",
+      });
+    }
+
+    console.log("Saving FCM token:", {
+      parentId: parent._id.toString(),
+      tokenSuffix: cleanToken.slice(-12),
     });
 
-    res.json({ message: "Token saved successfully" });
+    return res.status(200).json({
+      message: "Token saved successfully",
+    });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("Save FCM Token Error:", err);
+
+    return res.status(500).json({
+      message: "Server error",
+    });
   }
 };

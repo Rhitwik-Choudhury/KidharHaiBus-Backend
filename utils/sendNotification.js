@@ -18,20 +18,26 @@ const sendNotification = async (token, title, body) => {
       return;
     }
 
+    const cleanToken = token.trim();
     const safeTitle = String(title);
     const safeBody = String(body);
 
-    const message = {
-      token: token.trim(),
+    console.log("Sending FCM:", {
+      tokenSuffix: cleanToken.slice(-12),
+      title: safeTitle,
+    });
 
-      // Android displays this automatically when the app is
-      // in the background or closed.
+    const message = {
+      token: cleanToken,
+
+      // Android displays this automatically while the app is
+      // in the background or removed from recent apps.
       notification: {
         title: safeTitle,
         body: safeBody,
       },
 
-      // Existing foreground code can continue reading these.
+      // Retain data for the existing foreground handler.
       data: {
         title: safeTitle,
         body: safeBody,
@@ -39,18 +45,25 @@ const sendNotification = async (token, title, body) => {
 
       android: {
         priority: "high",
-        notification: {
-          channelId: "default",
-          sound: "default",
-        },
       },
     };
 
     const messageId = await admin.messaging().send(message);
 
-    console.log("FCM sent successfully:", messageId);
+    console.log("FCM accepted by Firebase:", {
+      messageId,
+      tokenSuffix: cleanToken.slice(-12),
+      title: safeTitle,
+    });
   } catch (err) {
-    console.error("FCM Error:", err.code || err.message);
+    console.error("FCM Error:", {
+      code: err.code,
+      message: err.message,
+      tokenSuffix:
+        typeof token === "string"
+          ? token.trim().slice(-12)
+          : null,
+    });
   }
 };
 
