@@ -11,32 +11,48 @@ const limiter = rateLimit({
   legacyHeaders: false,
 });
 
-router.post('/', limiter, async (req, res) => {
+router.post("/", limiter, async (req, res) => {
   try {
-    let { name = '', email = '', message = '' } = req.body || {};
+    let { name = "", email = "", message = "" } = req.body || {};
+
     name = String(name).trim();
     email = String(email).trim();
     message = String(message).trim();
 
     if (!name || !email || !message) {
-      return res.status(400).json({ ok: false, message: 'Name, email and message are required.' });
+      return res.status(400).json({
+        ok: false,
+        message: "Name, email and message are required.",
+      });
     }
+
     const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
     if (!emailOk) {
-      return res.status(400).json({ ok: false, message: 'Invalid email address.' });
+      return res.status(400).json({
+        ok: false,
+        message: "Invalid email address.",
+      });
     }
 
     await sendContactEmail({
       name,
-      email,   // user’s email (will be used as Reply-To)
-      message, // text the user typed
-      subject: 'Query from user',
+      email,
+      message,
+      subject: `New Trackefy enquiry from ${name}`,
     });
 
-    return res.json({ ok: true, message: 'Message sent successfully.' });
+    return res.status(200).json({
+      ok: true,
+      message: "Message sent successfully.",
+    });
   } catch (err) {
-    console.error('Contact email error:', err);
-    return res.status(500).json({ ok: false, message: 'Failed to send message.' });
+    console.error("Contact email error:", err);
+
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to send message. Please try again later.",
+    });
   }
 });
 
