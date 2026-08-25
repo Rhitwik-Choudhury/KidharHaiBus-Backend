@@ -10,6 +10,7 @@ const {
   updateStudent,
   deleteStudent,
   sendSchoolOTP,
+  getDashboardStats,
 } = require('../controllers/schoolController');
 
 const auth = require('../middleware/authMiddleware'); // Middleware to protect routes
@@ -23,6 +24,9 @@ router.get('/buses', authMiddleware, getBuses);
 // ====== School Auth Routes ======
 router.post('/signup', registerSchool);
 router.post('/login', loginSchool);
+
+// ====== Dashboard ======
+router.get('/dashboard-stats', auth, getDashboardStats);
 
 // ====== Student Management Routes (Protected) ======
 router.post('/students', auth, addStudent);           // Add student

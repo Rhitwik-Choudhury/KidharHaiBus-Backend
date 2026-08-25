@@ -1,6 +1,7 @@
 const School = require('../models/School');
 const Student = require('../models/Student');
 const Parent = require('../models/Parent');
+const Driver = require('../models/Driver');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const Bus = require('../models/Bus');
@@ -426,5 +427,52 @@ exports.assignDriver = async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Failed to assign driver' });
+  }
+};
+
+// ==================== Dashboard Statistics ====================
+exports.getDashboardStats = async (req, res) => {
+  try {
+    const schoolId = req.user?.id;
+
+    if (!schoolId) {
+      return res.status(401).json({
+        message: "Unauthorized",
+      });
+    }
+
+    if (req.user?.role && req.user.role !== "school") {
+      return res.status(403).json({
+        message: "School access required",
+      });
+    }
+
+    const [
+      totalStudents,
+      totalDrivers,
+      totalBuses,
+      activeTrips,
+    ] = await Promise.all([
+      Student.countDocuments({ schoolId }),
+      Driver.countDocuments({ schoolId }),
+      Bus.countDocuments({ schoolId }),
+      Bus.countDocuments({
+        schoolId,
+        tripStatus: "started",
+      }),
+    ]);
+
+    return res.status(200).json({
+      totalStudents,
+      totalDrivers,
+      totalBuses,
+      activeTrips,
+    });
+  } catch (error) {
+    console.error("Dashboard stats error:", error);
+
+    return res.status(500).json({
+      message: "Failed to fetch dashboard statistics",
+    });
   }
 };
