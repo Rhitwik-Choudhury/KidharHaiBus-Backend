@@ -412,24 +412,6 @@ exports.getBuses = async (req, res) => {
   }
 };
 
-// ==================== Assign Driver ====================
-exports.assignDriver = async (req, res) => {
-  try {
-    const { busId, driverId } = req.body;
-
-    const updatedBus = await Bus.findByIdAndUpdate(
-      busId,
-      { driver: driverId },
-      { new: true }
-    );
-
-    res.status(200).json(updatedBus);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Failed to assign driver' });
-  }
-};
-
 // ==================== Dashboard Statistics ====================
 exports.getDashboardStats = async (req, res) => {
   try {
