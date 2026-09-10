@@ -35,6 +35,7 @@ const contactRoutes = require("./routes/contactRoutes");
 const studentRoutes = require("./routes/studentRoutes");
 const busRoutes = require("./routes/busRoutes");
 const passwordRoutes = require("./routes/passwordRoutes");
+const placeRoutes = require("./routes/placeRoutes");
 
 // ---------------------------
 // CORS setup
@@ -107,6 +108,7 @@ app.use("/api/contact", contactRoutes);
 app.use("/api/students", studentRoutes);
 app.use("/api/buses", busRoutes);
 app.use("/api/password", passwordRoutes);
+app.use("/api/places", placeRoutes);
 
 // ---------------------------
 // Socket.IO
