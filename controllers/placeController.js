@@ -64,6 +64,7 @@ exports.autocompletePlaces = async (req, res) => {
 
     const response = await fetch(`${PLACES_BASE_URL}/places:autocomplete`, {
       method: "POST",
+      signal: AbortSignal.timeout(8000),
       headers: {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": getApiKey(),
@@ -129,6 +130,7 @@ exports.getPlaceDetails = async (req, res) => {
     const response = await fetch(
       `${PLACES_BASE_URL}/places/${encodeURIComponent(placeId)}?${query.toString()}`,
       {
+        signal: AbortSignal.timeout(8000),
         headers: {
           "X-Goog-Api-Key": getApiKey(),
           "X-Goog-FieldMask": "id,formattedAddress,location",

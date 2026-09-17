@@ -2,6 +2,9 @@ const mongoose = require("mongoose");
 
 const studentSchema = new mongoose.Schema(
   {
+    transportStatus: { type: String, enum: ["active", "not_riding", "parent_transport", "starts_later", "temporary_arrangement"], default: "active" },
+    transportStartsAt: Date,
+    transportNote: { type: String, maxlength: 500, default: "" },
     schoolId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "School",

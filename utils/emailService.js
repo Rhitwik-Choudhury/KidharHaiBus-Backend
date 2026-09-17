@@ -1,11 +1,12 @@
 
 const { Resend } = require("resend");
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+let resend;
+const getResend = () => { if (!process.env.RESEND_API_KEY) throw new Error('Email service is not configured'); return resend ||= new Resend(process.env.RESEND_API_KEY); };
 
 const sendOTP = async (to, otp) => {
   try {
-    await resend.emails.send({
+    await getResend().emails.send({
       from: "Trackefy <noreply@trackefy.in>", // ✅ IMPORTANT FIX
       to: to,
       subject: "Your OTP Code",
@@ -28,7 +29,7 @@ const sendOTP = async (to, otp) => {
 
 const sendPasswordResetOTP = async (to, otp) => {
   try {
-    const { error } = await resend.emails.send({
+    const { error } = await getResend().emails.send({
       from: "Trackefy <noreply@trackefy.in>",
       to,
       subject: "Reset your Trackefy password",
@@ -43,7 +44,7 @@ const sendPasswordResetOTP = async (to, otp) => {
 
 const sendContactEmail = async ({ name, email, message, subject }) => {
   try {
-    const { data, error } = await resend.emails.send({
+    const { data, error } = await getResend().emails.send({
       from: "Trackefy <noreply@trackefy.in>",
       to: ["trackefy@gmail.com"],
       subject: subject || "New Contact Message",

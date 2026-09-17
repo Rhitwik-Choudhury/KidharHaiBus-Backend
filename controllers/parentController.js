@@ -232,7 +232,8 @@ exports.getMyBus = async (req, res) => {
       });
     }
 
-    const student = parent.children[0];
+    const student = req.query.studentId ? parent.children.find(c => String(c._id) === req.query.studentId) : parent.children[0];
+    if (!student) return res.status(404).json({ message: 'Child not found' });
     const bus = student?.busId || null;
 
     return res.status(200).json({
@@ -246,56 +247,16 @@ exports.getMyBus = async (req, res) => {
   }
 };
 
-exports.setParentLocation = async (req, res) => {
-  try {
-    console.log("=== PICKUP API HIT ===");
-    console.log("BODY:", req.body);
-    console.log("USER:", req.user);
-
-    let { lat, lng } = req.body;
-
-    lat = Number(lat);
-    lng = Number(lng);
-
-    console.log("Converted:", lat, lng);
-
-    if (!lat || !lng || isNaN(lat) || isNaN(lng)) {
-      console.log("❌ Invalid coordinates");
-      return res.status(400).json({ message: "Invalid coordinates" });
-    }
-
-    console.log("Finding parent...");
-    const parent = await Parent.findById(req.user.id);
-
-    console.log("Parent found:", parent);
-
-    if (!parent) {
-      console.log("❌ Parent not found");
-      return res.status(404).json({ message: "Parent not found" });
-    }
-
-    parent.stopLocation = {
-      lat,
-      lng,
-    };
-
-    console.log("Saving...");
-    await parent.save();
-
-    console.log("✅ Saved successfully");
-
-    res.status(200).json({
-      message: "Location saved successfully",
-      stopLocation: parent.stopLocation,
-    });
-
-  } catch (error) {
-    console.error("🔥 FULL ERROR:", error);
-    console.error("🔥 STACK:", error.stack);
-
-    res.status(500).json({ message: "Server error" });
-  }
-};
+// Older clients may submit a point, but it is now a review request, never an operational stop.
+exports.setParentLocation = require('../services/routeValidation').endpoint(async (req, res) => {
+  const p = await Parent.findById(req.user.id).select('children');
+  const { assert } = require('../services/routeValidation');
+  assert(p, 'Parent not found', 404);
+  const studentId = req.body.studentId || (p.children.length === 1 ? p.children[0] : null);
+  assert(studentId, 'Select the child whose pickup point you want to change');
+  const request = await require('../services/routePlanning').submitRequest(req.user.id, studentId, req.body);
+  res.json({ message: 'Pending school review. Your approved stop has not changed.', requestId: request._id, status: 'pending' });
+});
 
 exports.saveFcmToken = async (req, res) => {
   try {
@@ -330,11 +291,6 @@ exports.saveFcmToken = async (req, res) => {
         message: "Parent not found",
       });
     }
-
-    console.log("Saving FCM token:", {
-      parentId: parent._id.toString(),
-      tokenSuffix: cleanToken.slice(-12),
-    });
 
     return res.status(200).json({
       message: "Token saved successfully",

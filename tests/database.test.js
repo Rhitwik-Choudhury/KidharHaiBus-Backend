@@ -1,0 +1,31 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const mongoose = require('mongoose');
+const uri = process.env.TEST_MONGO_URI;
+
+test('database lifecycle, snapshot stability and migration idempotency', { skip: !uri }, async () => {
+  const dbName = uri.split('/').at(-1).split('?')[0];
+  assert.match(dbName, /test/i, 'TEST_MONGO_URI database name must contain test');
+  await mongoose.connect(uri);
+  const School = require('../models/School'), Bus = require('../models/Bus'), Driver = require('../models/Driver');
+  const Student = require('../models/Student'), Parent = require('../models/Parent'), Request = require('../models/PickupRequest');
+  const Stop = require('../models/RouteStop'), Plan = require('../models/RoutePlan'), Trip = require('../models/Trip');
+  const models = [School, Bus, Driver, Student, Parent, Request, Stop, Plan, Trip];
+  for (const model of models) await model.deleteMany({});
+  const school = await School.create({ schoolName: 'Test', adminName: 'Admin', email: 'school@example.test', password: 'x', schoolLocation: { lat: 26, lng: 91, verifiedAt: new Date() } });
+  const bus = await Bus.create({ schoolId: school._id, busNumber: '1', carNumber: 'TEST1', route: 'Test', capacity: 40 });
+  const driver = await Driver.create({ fullName: 'Driver', email: 'driver@example.test', password: 'x', schoolId: school._id, busId: bus._id });
+  bus.driverId = driver._id; await bus.save();
+  const students = await Student.create([{ schoolId: school._id, busId: bus._id, name: 'One', class: '1', roll: '1', address: 'A', studentCode: 'T1' }, { schoolId: school._id, busId: bus._id, name: 'Two', class: '1', roll: '2', address: 'B', studentCode: 'T2' }]);
+  const parent = await Parent.create({ fullName: 'P', email: 'parent@example.test', phone: '1', password: 'x', schoolId: school._id, busId: bus._id, children: students.map(s => s._id), stopLocation: { lat: 26.01, lng: 91.01 } });
+  const { migrate } = require('../scripts/migrate-pickup-requests');
+  await migrate({ apply: true, log: () => {} });
+  await migrate({ apply: true, log: () => {} });
+  assert.equal(await Request.countDocuments(), 2);
+  const stop = await Stop.create({ schoolId: school._id, busId: bus._id, name: 'Shared', location: { lat: 26.01, lng: 91.01 }, studentIds: students.map(s => s._id), parentIds: [parent._id] });
+  const published = await Plan.create({ schoolId: school._id, busId: bus._id, version: 1, status: 'published', effectiveFrom: new Date(), publishedAt: new Date(), publishedBy: school._id, morningStopIds: [stop._id], returnStopIds: [stop._id], morningSnapshots: [{ routeStopId: stop._id, sequence: 0, name: 'Shared', location: stop.location, studentIds: students.map(s => s._id), parentIds: [parent._id] }], returnSnapshots: [{ routeStopId: stop._id, sequence: 0, name: 'Shared', location: stop.location, studentIds: students.map(s => s._id), parentIds: [parent._id] }] });
+  const trip = await Trip.create({ schoolId: school._id, busId: bus._id, driverId: driver._id, routePlanId: published._id, routePlanVersion: 1, direction: 'TO_SCHOOL', status: 'active', stopSnapshots: published.morningSnapshots });
+  stop.name = 'Changed'; await stop.save();
+  assert.equal((await Trip.findById(trip._id)).stopSnapshots[0].name, 'Shared');
+  await mongoose.disconnect();
+});

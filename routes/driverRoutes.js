@@ -16,6 +16,8 @@ const {
 
 // ✅ IMPORT AUTH BEFORE USING
 const auth = require("../middleware/authMiddleware");
+const { role } = require('../services/routeValidation');
+const driverOnly = role('driver');
 
 router.post("/send-otp", sendDriverOTP);
 // ================= PUBLIC ROUTES =================
@@ -23,14 +25,14 @@ router.post("/signup", registerDriver);
 router.post("/login", loginDriver);
 
 // ================= DRIVER LIST (IMPORTANT) =================
-router.get("/all", auth, getAllDrivers); // ✅ FIXED POSITION
+router.get("/all", auth, require("../services/routeValidation").role("school"), getAllDrivers); // ✅ FIXED POSITION
 
 // ================= PROTECTED ROUTES =================
-router.get("/me", auth, getDriverProfile);
-router.get("/assigned-bus", auth, getAssignedBus);
+router.get("/me", auth, driverOnly, getDriverProfile);
+router.get("/assigned-bus", auth, driverOnly, getAssignedBus);
 
-router.post("/start-trip", auth, startTrip);
-router.post("/end-trip", auth, endTrip);
-router.post("/location", auth, updateDriverLocation);
+router.post("/start-trip", auth, driverOnly, startTrip);
+router.post("/end-trip", auth, driverOnly, endTrip);
+router.post("/location", auth, driverOnly, updateDriverLocation);
 
 module.exports = router;

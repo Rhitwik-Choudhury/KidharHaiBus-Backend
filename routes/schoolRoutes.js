@@ -14,24 +14,25 @@ const {
 } = require('../controllers/schoolController');
 
 const auth = require('../middleware/authMiddleware'); // Middleware to protect routes
+const schoolOnly = require('../services/routeValidation').role('school');
 
 const { addBus, getBuses } = require('../controllers/schoolController');
 
 router.post("/send-otp", sendSchoolOTP);
-router.post('/buses', authMiddleware, addBus);
-router.get('/buses', authMiddleware, getBuses);
+router.post('/buses', authMiddleware, schoolOnly, addBus);
+router.get('/buses', authMiddleware, schoolOnly, getBuses);
 
 // ====== School Auth Routes ======
 router.post('/signup', registerSchool);
 router.post('/login', loginSchool);
 
 // ====== Dashboard ======
-router.get('/dashboard-stats', auth, getDashboardStats);
+router.get('/dashboard-stats', auth, schoolOnly, getDashboardStats);
 
 // ====== Student Management Routes (Protected) ======
-router.post('/students', auth, addStudent);           // Add student
-router.get('/students', auth, getStudents);           // Get all students of the school
-router.put('/students/:id', auth, updateStudent);     // Edit student
-router.delete('/students/:id', auth, deleteStudent);  // Delete student
+router.post('/students', auth, schoolOnly, addStudent);           // Add student
+router.get('/students', auth, schoolOnly, getStudents);           // Get all students of the school
+router.put('/students/:id', auth, schoolOnly, updateStudent);     // Edit student
+router.delete('/students/:id', auth, schoolOnly, deleteStudent);  // Delete student
 
 module.exports = router;

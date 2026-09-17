@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 
 const schoolSchema = new mongoose.Schema({
+  schoolLocation: require('./routeSchemas').schoolLocation,
   schoolName: { type: String, required: true },
   adminName: { type: String, required: true },
 

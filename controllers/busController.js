@@ -5,7 +5,8 @@ const Student = require("../models/Student");
 // ================= CREATE BUS =================
 exports.createBus = async (req, res) => {
   try {
-    const { schoolId, busNumber, carNumber, route, capacity } = req.body;
+    const { busNumber, carNumber, route, capacity } = req.body;
+    const schoolId = req.user.id;
 
     if (!schoolId || !busNumber || !carNumber || !route || !capacity) {
       return res.status(400).json({
@@ -57,7 +58,7 @@ exports.createBus = async (req, res) => {
 // ================= GET ALL BUSES =================
 exports.getAllBuses = async (req, res) => {
   try {
-    const { schoolId } = req.query;
+    const schoolId = req.user.id;
 
     const filter = {};
     if (schoolId) filter.schoolId = schoolId;
@@ -81,7 +82,7 @@ exports.getBusById = async (req, res) => {
   try {
     const { busId } = req.params;
 
-    const bus = await Bus.findById(busId).populate(
+    const bus = await Bus.findOne({ _id: busId, schoolId: req.user.id }).populate(
       "driverId",
       "fullName email schoolId busId isOnTrip"
     );
@@ -110,7 +111,7 @@ exports.assignDriverToBus = async (req, res) => {
       return res.status(400).json({ message: "driverId is required" });
     }
 
-    const bus = await Bus.findById(busId);
+    const bus = await Bus.findOne({ _id: busId, schoolId: req.user.id });
     if (!bus) {
       return res.status(404).json({ message: "Bus not found" });
     }
@@ -168,7 +169,7 @@ exports.removeDriverFromBus = async (req, res) => {
   try {
     const { busId } = req.params;
 
-    const bus = await Bus.findById(busId);
+    const bus = await Bus.findOne({ _id: busId, schoolId: req.user.id });
     if (!bus) {
       return res.status(404).json({ message: "Bus not found" });
     }
@@ -203,7 +204,7 @@ exports.updateBus = async (req, res) => {
     const { busId } = req.params;
     const { busNumber, carNumber, route, capacity } = req.body;
 
-    const bus = await Bus.findById(busId);
+    const bus = await Bus.findOne({ _id: busId, schoolId: req.user.id });
     if (!bus) {
       return res.status(404).json({ message: "Bus not found" });
     }
@@ -230,7 +231,7 @@ exports.deleteBus = async (req, res) => {
   try {
     const { busId } = req.params;
 
-    const bus = await Bus.findById(busId);
+    const bus = await Bus.findOne({ _id: busId, schoolId: req.user.id });
     if (!bus) {
       return res.status(404).json({ message: "Bus not found" });
     }
@@ -269,7 +270,7 @@ exports.getBusLiveLocation = async (req, res) => {
   try {
     const { busId } = req.params;
 
-    const bus = await Bus.findById(busId).select(
+    const bus = await Bus.findOne({ _id: busId, schoolId: req.user.id }).select(
       "busNumber currentLocation tripStatus lastLocationUpdatedAt driverId"
     );
 
@@ -292,7 +293,7 @@ exports.refreshStudentCount = async (req, res) => {
   try {
     const { busId } = req.params;
 
-    const bus = await Bus.findById(busId);
+    const bus = await Bus.findOne({ _id: busId, schoolId: req.user.id });
     if (!bus) {
       return res.status(404).json({ message: "Bus not found" });
     }
@@ -314,7 +315,7 @@ exports.refreshStudentCount = async (req, res) => {
 // ================= GET UNASSIGNED DRIVERS =================
 exports.getUnassignedDrivers = async (req, res) => {
   try {
-    const { schoolId } = req.query;
+    const schoolId = req.user.id;
 
     const filter = { busId: null };
     if (schoolId) filter.schoolId = schoolId;

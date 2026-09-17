@@ -2,6 +2,8 @@ const mongoose = require("mongoose");
 
 const busSchema = new mongoose.Schema(
   {
+    routeVersionCounter: { type: Number, default: 0 },
+    routeRevision: { type: Number, default: 0 },
     schoolId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "School",

@@ -141,246 +141,18 @@ exports.loginSchool = async (req, res) => {
   }
 };
 
-// ==================== Add New Student ====================
-exports.addStudent = async (req, res) => {
-  try {
-    const {
-      name,
-      roll,
-      address,
-      class: studentClass,
-      busId,
-      studentCode,
-      schoolId,
-    } = req.body;
-
-    const normalizedStudentCode = studentCode
-      ?.trim()
-      .toUpperCase()
-      .replace(/[^A-Z0-9]/g, "");
-
-    if (!normalizedStudentCode) {
-      return res.status(400).json({
-        message: "Student code is required"
-      });
-    }
-
-    const newStudent = await Student.create({
-      name,
-      roll,
-      address,
-      class: studentClass,
-      busId,
-      studentCode: normalizedStudentCode,
-      schoolId,
-    });
-
-    if (busId) {
-      await Bus.findByIdAndUpdate(busId, {
-        $inc: { studentCount: 1 },
-      });
-    }
-
-    res.status(201).json(newStudent);
-  } catch (error) {
-    console.error("Add Student Error:", error);
-
-    if (error.code === 11000 && error.keyPattern?.studentCode) {
-      return res.status(409).json({
-        message: "This student code already exists"
-      });
-    }
-
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// ==================== Get All Students ====================
-exports.getStudents = async (req, res) => {
-  try {
-    const { schoolId } = req.query;
-
-    const students = await Student.find({ schoolId })
-      .populate("busId"); // ✅ important for frontend
-
-    console.log("Fetching students for schoolId:", schoolId);
-
-    res.status(200).json(students);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Failed to fetch students' });
-  }
-};
-
-// ==================== Update Student ====================
-exports.updateStudent = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const existingStudent = await Student.findById(id);
-
-    if (!existingStudent) {
-      return res.status(404).json({
-        message: "Student not found",
-      });
-    }
-
-    // Accept either a bus ID string or a populated bus object.
-    const requestedBusId =
-      typeof req.body.busId === "object"
-        ? req.body.busId?._id
-        : req.body.busId;
-
-    if (!requestedBusId) {
-      return res.status(400).json({
-        message: "A valid bus is required",
-      });
-    }
-
-    const selectedBus = await Bus.findById(requestedBusId);
-
-    if (!selectedBus) {
-      return res.status(404).json({
-        message: "Selected bus not found",
-      });
-    }
-
-    // Ensure the selected bus belongs to the student's school.
-    if (
-      selectedBus.schoolId.toString() !==
-      existingStudent.schoolId.toString()
-    ) {
-      return res.status(400).json({
-        message: "Selected bus does not belong to this school",
-      });
-    }
-
-    const oldBusId = existingStudent.busId?.toString() || null;
-    const newBusId = selectedBus._id.toString();
-    const busChanged = oldBusId !== newBusId;
-
-    const allowedUpdates = {
-      name:
-        req.body.name !== undefined
-          ? req.body.name
-          : existingStudent.name,
-
-      roll:
-        req.body.roll !== undefined
-          ? req.body.roll
-          : existingStudent.roll,
-
-      address:
-        req.body.address !== undefined
-          ? req.body.address
-          : existingStudent.address,
-
-      class:
-        req.body.class !== undefined
-          ? req.body.class
-          : existingStudent.class,
-
-      busId: selectedBus._id,
-    };
-
-    const updatedStudent = await Student.findByIdAndUpdate(
-      id,
-      {
-        $set: allowedUpdates,
-      },
-      {
-        new: true,
-        runValidators: true,
-      }
-    ).populate("busId");
-
-    if (busChanged) {
-      // Decrease old bus count without allowing it to become negative.
-      if (oldBusId) {
-        await Bus.findOneAndUpdate(
-          {
-            _id: oldBusId,
-            studentCount: { $gt: 0 },
-          },
-          {
-            $inc: { studentCount: -1 },
-          }
-        );
-      }
-
-      // Increase the newly selected bus count.
-      await Bus.findByIdAndUpdate(newBusId, {
-        $inc: { studentCount: 1 },
-      });
-    }
-
-    // Keep every linked parent on the same bus as the student.
-    const parentUpdateResult = await Parent.updateMany(
-      {
-        $or: [
-          { children: existingStudent._id },
-          { studentCode: existingStudent.studentCode },
-        ],
-      },
-      {
-        $set: {
-          busId: selectedBus._id,
-          schoolId: existingStudent.schoolId,
-        },
-      }
-    );
-
-    console.log("Student updated and parent bus synchronized:", {
-      studentId: existingStudent._id.toString(),
-      studentCode: existingStudent.studentCode,
-      oldBusId,
-      newBusId,
-      busChanged,
-      matchedParents: parentUpdateResult.matchedCount,
-      updatedParents: parentUpdateResult.modifiedCount,
-    });
-
-    return res.status(200).json(updatedStudent);
-  } catch (error) {
-    console.error("Update Student Error:", error);
-
-    return res.status(500).json({
-      message: "Failed to update student",
-    });
-  }
-};
-
-// ==================== Delete Student ====================
-exports.deleteStudent = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const student = await Student.findById(id);
-    if (!student) {
-      return res.status(404).json({ message: 'Student not found' });
-    }
-
-    // 🔥 Decrement bus count
-    if (student.busId) {
-      await Bus.findByIdAndUpdate(student.busId, {
-        $inc: { studentCount: -1 },
-      });
-    }
-
-    await Student.findByIdAndDelete(id);
-
-    res.status(200).json({ message: 'Student deleted successfully' });
-
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Failed to delete student' });
-  }
-};
+// Both legacy student URL families use the same scoped controller.
+const studentController = require('./studentController');
+exports.addStudent = studentController.createStudent;
+exports.getStudents = studentController.getStudents;
+exports.updateStudent = studentController.updateStudent;
+exports.deleteStudent = studentController.deleteStudent;
 
 // ==================== Add New Bus ====================
 exports.addBus = async (req, res) => {
   try {
-    const { schoolId, busNumber, carNumber, route, capacity } = req.body;
+    const { busNumber, carNumber, route, capacity } = req.body;
+    const schoolId = req.user.id;
 
     const newBus = await Bus.create({
       schoolId,
@@ -401,7 +173,7 @@ exports.addBus = async (req, res) => {
 // ==================== Get All Buses ====================
 exports.getBuses = async (req, res) => {
   try {
-    const { schoolId } = req.query;
+    const schoolId = req.user.id;
 
     const buses = await Bus.find({ schoolId });
 

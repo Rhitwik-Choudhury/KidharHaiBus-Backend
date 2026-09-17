@@ -1,6 +1,6 @@
 const admin = require("../config/firebase");
 
-const sendNotification = async (token, title, body) => {
+const sendNotification = async (token, title, body, data = {}) => {
   try {
     if (!admin) {
       console.log(
@@ -22,10 +22,6 @@ const sendNotification = async (token, title, body) => {
     const safeTitle = String(title);
     const safeBody = String(body);
 
-    console.log("Sending FCM:", {
-      tokenSuffix: cleanToken.slice(-12),
-      title: safeTitle,
-    });
 
     const message = {
       token: cleanToken,
@@ -39,6 +35,7 @@ const sendNotification = async (token, title, body) => {
 
       // Retain data for the existing foreground handler.
       data: {
+        ...Object.fromEntries(Object.entries(data).map(([key, value]) => [key, String(value)])),
         title: safeTitle,
         body: safeBody,
       },
@@ -48,21 +45,12 @@ const sendNotification = async (token, title, body) => {
       },
     };
 
-    const messageId = await admin.messaging().send(message);
+    await admin.messaging().send(message);
 
-    console.log("FCM accepted by Firebase:", {
-      messageId,
-      tokenSuffix: cleanToken.slice(-12),
-      title: safeTitle,
-    });
   } catch (err) {
     console.error("FCM Error:", {
       code: err.code,
       message: err.message,
-      tokenSuffix:
-        typeof token === "string"
-          ? token.trim().slice(-12)
-          : null,
     });
   }
 };

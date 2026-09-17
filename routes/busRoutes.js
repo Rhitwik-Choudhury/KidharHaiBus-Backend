@@ -16,6 +16,7 @@ const {
 
 const auth = require("../middleware/authMiddleware");
 
+router.use(auth, require('../services/routeValidation').role('school'));
 // Bus CRUD
 router.post("/", auth, createBus);
 router.get("/", auth, getAllBuses);
