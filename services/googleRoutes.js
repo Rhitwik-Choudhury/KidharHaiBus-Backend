@@ -20,10 +20,22 @@ async function computeRoute(points, { fetchImpl = global.fetch, key = process.en
       response = await fetchImpl('https://routes.googleapis.com/directions/v2:computeRoutes', {
         method: 'POST', signal: AbortSignal.timeout(8000),
         headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': key, 'X-Goog-FieldMask': FIELD_MASK },
-        body: JSON.stringify({ origin: waypoint(chunk.points[0]), destination: waypoint(chunk.points.at(-1)), intermediates: chunk.points.slice(1, -1).map(waypoint), travelMode: 'DRIVE', routingPreference: 'TRAFFIC_AWARE', computeAlternativeRoutes: false, optimizeWaypointOrder: false, polylineQuality: 'HIGH_QUALITY', departureTime: new Date(Math.max(Date.now(), +new Date(departureTime)) + durationSeconds * 1000).toISOString() }),
+        body: JSON.stringify({ origin: waypoint(chunk.points[0]), destination: waypoint(chunk.points.at(-1)), intermediates: chunk.points.slice(1, -1).map(waypoint), travelMode: 'DRIVE', routingPreference: 'TRAFFIC_AWARE', computeAlternativeRoutes: false, optimizeWaypointOrder: false, polylineQuality: 'HIGH_QUALITY', departureTime: new Date(Math.max(Date.now() + 60000, +new Date(departureTime)) + durationSeconds * 1000).toISOString() }),
       });
     } catch { throw new RouteError(503, 'Road routing timed out. Please retry.'); }
-    if (!response.ok) throw new RouteError(503, 'Road routing is temporarily unavailable. Please retry.');
+    if (!response.ok) {
+      const details = await response.text();
+
+      console.error('Google Routes API error', {
+        status: response.status,
+        details: details.slice(0, 1000),
+      });
+
+      throw new RouteError(
+        503,
+        'Road routing is temporarily unavailable. Please retry.'
+      );
+    }
     const route = (await response.json()).routes?.[0];
     assert(route?.polyline?.encodedPolyline && route.legs?.length === chunk.points.length - 1, 'The route could not be calculated safely', 502);
     assert(Number.isFinite(route.distanceMeters) && Number.isFinite(duration(route.duration)), 'Invalid road route response', 502);
