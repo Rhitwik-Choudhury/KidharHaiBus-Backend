@@ -1,5 +1,6 @@
 const { assert, coordinates } = require('./routeValidation');
 const { distance, decode, encode, stitch, project } = require('./routeGeometry');
+const automation = require('./tripAutomation');
 const refreshSeconds = () => Math.max(120, Number(process.env.ROUTE_REFRESH_SECONDS) || 150);
 const dwellSeconds = () => Math.max(12, Number(process.env.STOP_DWELL_SECONDS) || 20);
 function validateLocation(input, trip, now = Date.now()) {
@@ -26,7 +27,7 @@ function validateLocation(input, trip, now = Date.now()) {
   return { ...location, accuracy, speed, heading, deviceTimestamp: new Date(deviceTimestamp) };
 }
 function locateOnRoute(trip) {
-  const offset = trip.nextStopIndex - trip.routeStartStopIndex;
+  const offset = trip.routeLegs?.findIndex(l => l.stopIndex >= trip.nextStopIndex) ?? -1;
   const leg = trip.routeLegs?.[offset];
   if (!leg) return null;
   const preceding = trip.routeLegs.slice(0, offset).reduce((n, l) => n + l.distanceMeters, 0);
@@ -40,30 +41,36 @@ function locateOnRoute(trip) {
   return { ...projection, routeMeters: preceding + projection.along / (projection.total || 1) * leg.distanceMeters, legFraction: Math.min(1, projection.along / (projection.total || 1)), completedPoints: stitch([completedBefore, line.slice(0, projection.index + 1), [projection.position]]) };
 }
 function advanceStop(trip, now = Date.now()) {
-  const stop = trip.stopSnapshots[trip.nextStopIndex];
-  if (!stop) return null;
+  const before = trip.nextStopIndex;
+  const events = [];
+  const candidates = trip.stopSnapshots.map((stop, index) => ({ stop, index, metres: distance(trip.currentLocation, stop.location) })).filter(v => !automation.resolved(v.stop));
+  const next = candidates.find(v => v.index === before);
+  const nearest = next && next.metres <= next.stop.geofenceRadiusMeters ? next : candidates.sort((a, b) => a.metres - b.metres)[0];
+  for (const { stop, index } of candidates) {
   const close = distance(trip.currentLocation, stop.location) <= stop.geofenceRadiusMeters;
-  const slow = trip.speed == null || trip.speed <= 3;
+  const slow = trip.speed != null && trip.speed <= 3;
   if (stop.status === 'arrived') {
     if (!close || now - +new Date(stop.actualArrival) >= dwellSeconds() * 1000) {
-      stop.status = 'completed'; stop.completedAt = new Date(now); trip.nextStopIndex += 1;
-      return { type: 'completed', stop };
+      stop.status = 'completed'; stop.completedAt = new Date(now); automation.clearPassage(stop);
+      events.push({ type: 'completed', stop });
     }
-    return null;
+    continue;
   }
-  if (close && slow) {
+  if (close && slow && index === nearest?.index) {
     stop.insideCount = (stop.insideCount || 0) + 1;
     if (!stop.insideSince) stop.insideSince = new Date(now);
     const dwell = now - +new Date(stop.insideSince);
-    if (stop.insideCount >= 3 && dwell >= (trip.speed == null ? 12000 : 6000)) {
+    if (stop.insideCount >= 3 && dwell >= 6000) {
       stop.status = 'arrived'; stop.actualArrival = new Date(now);
-      return { type: 'arrived', stop };
+      automation.clearPassage(stop); events.push({ type: 'arrived', stop }); continue;
     }
     stop.status = 'approaching';
   } else { stop.insideCount = 0; stop.insideSince = null; if (stop.status === 'approaching') stop.status = 'pending'; }
-  return null;
+  }
+  automation.advanceCursor(trip);
+  return events.length ? { type: events.some(e => e.type === 'completed') ? 'completed' : 'arrived', events, advanced: trip.nextStopIndex !== before } : null;
 }
-function updateProgress(trip, now = Date.now()) {
+function updateProgress(trip, now = Date.now(), trackStops = true) {
   const projection = trip.mode === 'route' ? locateOnRoute(trip) : null;
   if (projection) {
     const off = projection.distance > Math.max(80, (trip.accuracy || 0) * 1.5);
@@ -73,11 +80,12 @@ function updateProgress(trip, now = Date.now()) {
     if (!off) trip.routeProgressMeters = Math.max(trip.routeProgressMeters || 0, projection.routeMeters);
     trip.routePointIndex = projection.index;
   } else trip.displayLocation = trip.currentLocation;
-  const event = advanceStop(trip, now);
+  const event = trackStops ? advanceStop(trip, now) : null;
   return { projection, event };
 }
 function shouldRefresh(trip, now = Date.now(), stopChanged = false) {
   if (trip.mode !== 'route' || (trip.direction === 'FROM_SCHOOL' && trip.nextStopIndex >= trip.stopSnapshots.length)) return false;
+  if (stopChanged) return true;
   const lastAttempt = trip.lastRouteAttemptAt ? +new Date(trip.lastRouteAttemptAt) : 0;
   if (now - lastAttempt < 45000) return false;
   return !trip.routeLegs?.length || !trip.routeCalculatedAt || now - +new Date(trip.routeCalculatedAt) >= refreshSeconds() * 1000 || trip.offRoute || stopChanged;
@@ -87,7 +95,8 @@ function estimates(trip, now = Date.now()) {
   const routeOld = !trip.routeCalculatedAt || now - +new Date(trip.routeCalculatedAt) > 600000;
   const estimates = [];
   if (trip.mode !== 'route' || !trip.routeLegs?.length || stale || routeOld || trip.offRoute) return { stops: estimates, terminal: null, stale, routeOld };
-  const offset = trip.nextStopIndex - trip.routeStartStopIndex;
+  const offset = trip.routeLegs.findIndex(l => l.stopIndex >= trip.nextStopIndex);
+  if (offset < 0) return { stops: estimates, terminal: null, stale, routeOld };
   const coveredBefore = trip.routeLegs.slice(0, offset).reduce((n, l) => n + l.distanceMeters, 0);
   const leg = trip.routeLegs[offset];
   const fraction = leg ? Math.max(0, Math.min(1, (trip.routeProgressMeters - coveredBefore) / (leg.distanceMeters || 1))) : 1;
@@ -98,7 +107,7 @@ function estimates(trip, now = Date.now()) {
     const factor = i === offset ? 1 - fraction : 1;
     seconds += l.durationSeconds * factor; metres += l.distanceMeters * factor;
     const stop = trip.stopSnapshots[l.stopIndex];
-    if (stop && l.stopIndex >= trip.nextStopIndex) {
+    if (stop && l.stopIndex >= trip.nextStopIndex && !automation.resolved(stop)) {
       estimates.push({ stopIndex: l.stopIndex, seconds: stop.status === 'arrived' ? 0 : Math.max(0, seconds - sinceGps), distanceMeters: Math.round(metres) });
       seconds += dwellSeconds();
     }
@@ -108,7 +117,7 @@ function estimates(trip, now = Date.now()) {
 function displayedRoad(trip) {
   if (trip.direction === 'FROM_SCHOOL' && trip.nextStopIndex >= trip.stopSnapshots.length) return { remainingPolyline: '', completedPolyline: encode(stitch([decode(trip.completedPolyline || ''), decode(trip.routePolyline || '')])) };
   const projection = trip.currentLocation ? locateOnRoute(trip) : null;
-  const offset = trip.nextStopIndex - trip.routeStartStopIndex;
+  const offset = trip.routeLegs?.findIndex(l => l.stopIndex >= trip.nextStopIndex) ?? -1;
   const leg = trip.routeLegs?.[offset];
   const remaining = projection && leg ? stitch([[projection.position], decode(leg.encodedPolyline).slice(projection.index + 1), ...trip.routeLegs.slice(offset + 1).map(l => decode(l.encodedPolyline))]) : decode(trip.routePolyline || '');
   const completed = stitch([decode(trip.completedPolyline || ''), projection?.completedPoints || []]);

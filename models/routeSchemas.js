@@ -21,5 +21,8 @@ const stopSnapshot = new Schema({
   status: { type: String, enum: ['pending', 'approaching', 'arrived', 'completed', 'skipped'], default: 'pending' },
   estimatedArrival: Date, actualArrival: Date, completedAt: Date, skipReason: String,
   insideCount: { type: Number, default: 0 }, insideSince: Date,
+  nearSeenAt: Date, passageLine: String, passageEntry: coordinate,
+  lastPassageDistance: Number, awayCount: { type: Number, default: 0 },
+  autoSkipAt: Date, skippedAt: Date, skipSource: { type: String, enum: ['manual', 'automatic', 'trip_end'] },
 }, { _id: false });
 module.exports = { ref, coordinate, schoolLocation, stopSnapshot };

@@ -9,6 +9,8 @@ const { withLock } = require('./operationLock');
 const { computeRoute } = require('./googleRoutes');
 const { encode, decode, stitch } = require('./routeGeometry');
 const progress = require('./tripProgress');
+const automation = require('./tripAutomation');
+const { notifyDriver } = require('./driverTripNotifications');
 const { notifyParent, notifyBus, busParents } = require('./routeNotifications');
 async function assigned(driverId) {
   const driver = await Driver.findById(driverId);
@@ -45,17 +47,17 @@ async function readiness(driverId) {
 }
 async function calculate(trip, now = new Date()) {
   trip.lastRouteAttemptAt = now;
-  const remaining = trip.stopSnapshots.slice(trip.nextStopIndex);
-  const points = [trip.currentLocation, ...remaining.map(s => s.location)];
+  const remaining = trip.stopSnapshots.map((stop, index) => ({ stop, index })).filter(v => v.index >= trip.nextStopIndex && !automation.resolved(v.stop));
+  const points = [trip.currentLocation, ...remaining.map(v => v.stop.location)];
   if (trip.direction === 'TO_SCHOOL') points.push(trip.schoolLocationSnapshot);
   if (points.length < 2) return;
-  const previous = trip.routePolyline ? progress.displayedRoad(trip).completedPolyline : '';
+  const previous = trip.routePolyline ? progress.displayedRoad(trip).completedPolyline : trip.completedPolyline || '';
   const result = await computeRoute(points);
   trip.completedPolyline = previous.length < 500000 ? previous : encode(decode(previous).slice(-20000));
   trip.routePolyline = result.routePolyline;
   if (!trip.plannedPolyline) trip.plannedPolyline = result.routePolyline;
   trip.routeDistanceMeters = result.routeDistanceMeters; trip.routeDurationSeconds = result.routeDurationSeconds;
-  trip.routeLegs = result.legs.map((l, i) => ({ ...l, stopIndex: trip.nextStopIndex + i }));
+  trip.routeLegs = result.legs.map((l, i) => ({ ...l, stopIndex: remaining[i]?.index ?? trip.stopSnapshots.length }));
   trip.routeStartStopIndex = trip.nextStopIndex; trip.routeProgressMeters = 0; trip.routePointIndex = 0;
   trip.routeCalculatedAt = now; trip.routeState = 'ready';
   if (trip.offRoute) trip.lastReroutedAt = now;
@@ -98,7 +100,7 @@ async function syncState(trip) {
 }
 function commonView(trip) {
   const eta = progress.estimates(trip);
-  return { id: id(trip._id), busId: id(trip.busId), direction: trip.direction, status: trip.status, mode: trip.mode, routePlanVersion: trip.routePlanVersion, currentLocation: trip.displayLocation || trip.currentLocation || null, lastLocationUpdatedAt: trip.lastLocationUpdatedAt, routeState: trip.routeState, offRoute: trip.offRoute, startedAt: trip.startedAt, endedAt: trip.endedAt, schoolLocation: trip.schoolLocationSnapshot, ...progress.displayedRoad(trip), remainingStopCount: Math.max(0, trip.stopSnapshots.length - trip.nextStopIndex), totalStopCount: trip.stopSnapshots.length, terminalEta: eta.terminal, stale: eta.stale };
+  return { revision: trip.__v || 0, updatedAt: trip.updatedAt, id: id(trip._id), busId: id(trip.busId), direction: trip.direction, status: trip.status, mode: trip.mode, routePlanVersion: trip.routePlanVersion, currentLocation: trip.displayLocation || trip.currentLocation || null, lastLocationUpdatedAt: trip.lastLocationUpdatedAt, routeState: trip.routeState, offRoute: trip.offRoute, startedAt: trip.startedAt, endedAt: trip.endedAt, schoolLocation: trip.schoolLocationSnapshot, ...progress.displayedRoad(trip), remainingStopCount: trip.stopSnapshots.filter(s => !automation.resolved(s)).length, totalStopCount: trip.stopSnapshots.length, terminalEta: eta.terminal, stale: eta.stale, finishReminder: automation.reminderView(trip) };
 }
 function driverView(trip) {
   const eta = progress.estimates(trip);
@@ -110,7 +112,7 @@ function parentView(trip, studentId, now = Date.now()) {
   const stop = trip.stopSnapshots[index];
   const eta = progress.estimates(trip, now);
   const estimate = eta.stops.find(e => e.stopIndex === index);
-  return { ...view, studentId: id(studentId), personal: stop ? { approvedStop: { name: stop.name, location: stop.location }, status: stop.status, estimatedArrival: estimate ? new Date(now + estimate.seconds * 1000) : null, distanceMeters: estimate?.distanceMeters ?? null, stopsBeforeYours: index >= trip.nextStopIndex && estimate ? Math.max(0, index - trip.nextStopIndex) : null, skipReason: stop.status === 'skipped' ? stop.skipReason : null } : null };
+  return { ...view, studentId: id(studentId), personal: stop ? { approvedStop: { name: stop.name, location: stop.location }, status: stop.status, estimatedArrival: estimate ? new Date(now + estimate.seconds * 1000) : null, distanceMeters: estimate?.distanceMeters ?? null, stopsBeforeYours: index >= trip.nextStopIndex && estimate ? trip.stopSnapshots.slice(trip.nextStopIndex, index).filter(s => !automation.resolved(s)).length : null, skipReason: stop.status === 'skipped' ? stop.skipReason : null } : null };
 }
 async function emitTrip(trip, io) {
   if (!io) return;
@@ -149,10 +151,21 @@ async function location(driverId, input, io) {
     assert(trip, 'Start a trip before sending location.', 409);
     const gps = progress.validateLocation(input, trip);
     if (gps.ignored) return { accepted: false, reason: gps.ignored };
+    const previous = { location: trip.currentLocation?.toObject ? trip.currentLocation.toObject() : trip.currentLocation, time: trip.lastDeviceTimestamp };
+    const gap = previous.time ? +gps.deviceTimestamp - +new Date(previous.time) : Infinity;
+    if (gap > 15000) for (const stop of trip.stopSnapshots) { stop.insideCount = 0; stop.insideSince = null; }
+    if (gps.speed == null && previous.location && gap >= 1500 && gap <= 15000) gps.speed = require('./routeGeometry').distance(previous.location, gps) / (gap / 1000);
     trip.currentLocation = { lat: gps.lat, lng: gps.lng }; trip.lastDeviceTimestamp = gps.deviceTimestamp;
     trip.lastLocationUpdatedAt = new Date(); trip.accuracy = gps.accuracy; trip.speed = gps.speed; trip.heading = gps.heading;
-    const { event } = progress.updateProgress(trip);
-    if (progress.shouldRefresh(trip, Date.now(), event?.type === 'completed')) {
+    const completedRoad = progress.displayedRoad(trip).completedPolyline;
+    const trustedForArrival = Date.now() - +gps.deviceTimestamp <= 15000 && gps.accuracy != null && gps.accuracy <= 60;
+    if (!trustedForArrival) for (const stop of trip.stopSnapshots) { stop.insideCount = 0; stop.insideSince = null; }
+    const { event } = progress.updateProgress(trip, Date.now(), trustedForArrival);
+    automation.observePassage(trip, previous);
+    const skipped = automation.finalizeSkips(trip);
+    const changed = event?.type === 'completed' || skipped.length > 0;
+    if (changed) await rebuildAfterStops(trip, io, completedRoad);
+    else if (progress.shouldRefresh(trip)) {
       trip.routeState = 'rerouting'; await trip.save(); await emitTrip(trip, io);
       try { await calculate(trip); }
       catch { trip.routeState = trip.routePolyline ? 'cached' : 'unavailable'; }
@@ -161,7 +174,9 @@ async function location(driverId, input, io) {
     for (const stop of trip.stopSnapshots) stop.estimatedArrival = null;
     for (const e of eta.stops) trip.stopSnapshots[e.stopIndex].estimatedArrival = new Date(Date.now() + e.seconds * 1000);
     trip.terminalEta = eta.terminal;
+    automation.observeFinish(trip, previous);
     await trip.save(); await syncState(trip); await emitTrip(trip, io); await personalAlerts(trip, io);
+    await sendFinishReminder(trip, io);
     if (trip.offRoute || eta.routeOld) await notifyBus(bus._id, `trip:${trip._id}:delay`, 'ROUTE_DELAY', 'The bus route is being updated. Arrival estimates may be delayed.', io, { tripId: id(trip._id) });
     return { accepted: true, busId: id(bus._id), currentLocation: trip.currentLocation, lastLocationUpdatedAt: trip.lastLocationUpdatedAt };
   });
@@ -171,9 +186,10 @@ async function end(driverId, body, io) {
   return withLock(`trip:${bus._id}`, async () => {
     const trip = await Trip.findOne({ driverId, busId: bus._id, status: 'active' });
     if (!trip) { await Driver.updateOne({ _id: driverId }, { isOnTrip: false }); await Bus.updateOne({ _id: bus._id }, { tripStatus: 'ended' }); return { ended: true }; }
-    const remaining = trip.stopSnapshots.slice(trip.nextStopIndex);
+    const remaining = trip.stopSnapshots.slice(trip.nextStopIndex).filter(s => !automation.resolved(s));
     if (trip.mode === 'route' && remaining.length) assert(body.confirmIncomplete === true && text(body.reason).length >= 5, 'Stops remain. Confirm ending early and provide a reason.', 409);
-    for (const stop of remaining) { stop.status = 'skipped'; stop.skipReason = text(body.reason) || 'Trip ended'; stop.completedAt = new Date(); }
+    for (const stop of remaining) { stop.status = 'skipped'; stop.skipSource = 'trip_end'; stop.skippedAt = new Date(); stop.skipReason = text(body.reason) || 'Trip ended'; stop.completedAt = new Date(); automation.clearPassage(stop); }
+    trip.finishCandidateAt = null; trip.finishSnoozedUntil = null;
     trip.status = 'completed'; trip.running = false; trip.endedAt = new Date(); trip.endReason = text(body.reason); trip.nextStopIndex = trip.stopSnapshots.length;
     await trip.save(); await syncState(trip); await emitTrip(trip, io);
     await notifyBus(bus._id, `trip:${trip._id}:end`, 'TRIP_ENDED', 'Bus trip has ended.', io, { tripId: id(trip._id) }); return { ended: true, trip: driverView(trip) };
@@ -186,12 +202,48 @@ async function skip(driverId, tripId, body, io) {
     assert(trip, 'Active trip not found', 404); assert(text(body.reason).length >= 3, 'Enter a reason for skipping this stop');
     const stop = trip.stopSnapshots[trip.nextStopIndex]; assert(stop, 'No remaining stop');
     assert(body.stopIndex === trip.nextStopIndex, 'The next stop changed. Refresh before skipping.', 409);
-    stop.status = 'skipped'; stop.skipReason = text(body.reason); stop.completedAt = new Date(); trip.nextStopIndex += 1;
+    const completedRoad = progress.displayedRoad(trip).completedPolyline;
+    stop.status = 'skipped'; stop.skipSource = 'manual'; stop.skippedAt = new Date(); stop.skipReason = text(body.reason); stop.completedAt = new Date(); automation.clearPassage(stop); automation.advanceCursor(trip);
     // Progress and ETA must exclude a skipped waypoint immediately, even during cooldown.
-    trip.completedPolyline = progress.displayedRoad(trip).completedPolyline;
-    trip.routeLegs = []; trip.routePolyline = ''; trip.routeState = 'unavailable';
-    try { await calculate(trip); } catch { trip.routeState = 'unavailable'; }
+    await rebuildAfterStops(trip, io, completedRoad);
     await trip.save(); await emitTrip(trip, io); return driverView(trip);
   });
 }
-module.exports = { assigned, readiness, start, end, skip, location, commonView, driverView, parentView, emitTrip, currentSnapshot, calculate };
+async function rebuildAfterStops(trip, io, completedRoad) {
+  trip.completedPolyline = completedRoad ?? progress.displayedRoad(trip).completedPolyline;
+  trip.routeLegs = []; trip.routePolyline = ''; trip.terminalEta = null;
+  trip.routeState = 'rerouting';
+  for (const stop of trip.stopSnapshots) stop.estimatedArrival = null;
+  // Publish the new stop status before waiting for Google, without an old ETA
+  // or route that points back to the skipped waypoint.
+  await trip.save(); await emitTrip(trip, io);
+  if (trip.direction === 'FROM_SCHOOL' && trip.stopSnapshots.every(automation.resolved)) { trip.routeState = 'ready'; return; }
+  try { await calculate(trip); } catch { trip.routeState = 'unavailable'; }
+}
+async function sendFinishReminder(trip, io) {
+  if (!automation.reminderDue(trip)) return;
+  trip.finishReminderAt = new Date(); await trip.save();
+  await notifyDriver(trip, automation.reminderView(trip).message, io);
+}
+async function snooze(driverId, tripId, io) {
+  const { bus } = await assigned(driverId);
+  return withLock(`trip:${bus._id}`, async () => {
+    const trip = await Trip.findOne({ _id: tripId, busId: bus._id, driverId, status: 'active' });
+    assert(trip && trip.finishCandidateAt, 'No active trip reminder', 409);
+    trip.finishSnoozedUntil = new Date(Date.now() + 300000); await trip.save(); await emitTrip(trip, io);
+    return driverView(trip);
+  });
+}
+async function tickTrip(tripId, io) {
+  const candidate = await Trip.findById(tripId).select('busId').lean();
+  if (!candidate) return;
+  return withLock(`trip:${candidate.busId}`, async () => {
+    const trip = await Trip.findOne({ _id: tripId, status: 'active' });
+    if (!trip) return;
+    const completedRoad = progress.displayedRoad(trip).completedPolyline;
+    const skipped = automation.finalizeSkips(trip);
+    if (skipped.length) { await rebuildAfterStops(trip, io, completedRoad); await trip.save(); await emitTrip(trip, io); }
+    await sendFinishReminder(trip, io);
+  });
+}
+module.exports = { assigned, readiness, start, end, skip, snooze, tickTrip, location, commonView, driverView, parentView, emitTrip, currentSnapshot, calculate };

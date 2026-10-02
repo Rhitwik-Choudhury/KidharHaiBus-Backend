@@ -9,6 +9,7 @@ const Student = require('../models/Student');
 const Bus = require('../models/Bus');
 const Parent = require('../models/Parent');
 const Trip = require('../models/Trip');
+const Driver = require('../models/Driver');
 const PickupRequest = require('../models/PickupRequest');
 const RouteStop = require('../models/RouteStop');
 const RoutePlan = require('../models/RoutePlan');
@@ -73,4 +74,10 @@ parent.get('/live-trip/:studentId', endpoint(async (req, res) => {
 driver.get('/route-readiness', endpoint(async (req, res) => res.json(await tripService.readiness(req.user.id))));
 driver.get('/active-trip', endpoint(async (req, res) => { const trip = await Trip.findOne({ driverId: req.user.id, status: 'active' }); res.json({ trip: trip ? tripService.driverView(trip) : null }); }));
 driver.post('/trip/:tripId/skip-stop', endpoint(async (req, res) => res.json({ trip: await tripService.skip(req.user.id, req.params.tripId, req.body, req.io) })));
+driver.post('/trip/:tripId/snooze-reminder', endpoint(async (req, res) => res.json({ trip: await tripService.snooze(req.user.id, req.params.tripId, req.io) })));
+driver.post('/save-fcm-token', endpoint(async (req, res) => {
+  assert(typeof req.body.token === 'string' && req.body.token.trim().length > 20 && req.body.token.length <= 4096, 'Invalid notification token');
+  await Driver.updateOne({ _id: req.user.id }, { $set: { fcmToken: req.body.token.trim() } });
+  res.json({ saved: true });
+}));
 module.exports = { school, parent, driver };

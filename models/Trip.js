@@ -22,6 +22,8 @@ const schema = new mongoose.Schema({
   lastLocationUpdatedAt: Date, lastDeviceTimestamp: Date,
   accuracy: Number, speed: Number, heading: Number,
   terminalEta: Date, endReason: String,
+  finishSince: Date, finishAnchor: coordinate, finishCandidateAt: Date,
+  finishReminderAt: Date, finishSnoozedUntil: Date,
 }, { timestamps: true, optimisticConcurrency: true });
 schema.index({ busId: 1 }, { unique: true, partialFilterExpression: { running: true } });
 schema.index({ driverId: 1 }, { unique: true, partialFilterExpression: { running: true } });
