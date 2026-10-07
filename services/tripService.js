@@ -186,13 +186,52 @@ async function end(driverId, body, io) {
   return withLock(`trip:${bus._id}`, async () => {
     const trip = await Trip.findOne({ driverId, busId: bus._id, status: 'active' });
     if (!trip) { await Driver.updateOne({ _id: driverId }, { isOnTrip: false }); await Bus.updateOne({ _id: bus._id }, { tripStatus: 'ended' }); return { ended: true }; }
-    const remaining = trip.stopSnapshots.slice(trip.nextStopIndex).filter(s => !automation.resolved(s));
-    if (trip.mode === 'route' && remaining.length) assert(body.confirmIncomplete === true && text(body.reason).length >= 5, 'Stops remain. Confirm ending early and provide a reason.', 409);
-    for (const stop of remaining) { stop.status = 'skipped'; stop.skipSource = 'trip_end'; stop.skippedAt = new Date(); stop.skipReason = text(body.reason) || 'Trip ended'; stop.completedAt = new Date(); automation.clearPassage(stop); }
+    const remaining = trip.stopSnapshots
+      .map((stop, index) => ({ stop, index }))
+      .filter(({ stop, index }) => index >= trip.nextStopIndex && !automation.resolved(stop));
+    if (trip.mode === 'route' && remaining.length) assert(body.confirmIncomplete === true, 'Confirm ending the trip early.', 409);
+    const endReason = text(body.reason) || (remaining.length ? 'Trip ended early by driver' : 'Trip completed by driver');
+    for (const { stop } of remaining) {
+      stop.status = 'skipped'; stop.skipSource = 'trip_end'; stop.skippedAt = new Date();
+      stop.skipReason = endReason; stop.completedAt = new Date(); automation.clearPassage(stop);
+    }
     trip.finishCandidateAt = null; trip.finishSnoozedUntil = null;
-    trip.status = 'completed'; trip.running = false; trip.endedAt = new Date(); trip.endReason = text(body.reason); trip.nextStopIndex = trip.stopSnapshots.length;
-    await trip.save(); await syncState(trip); await emitTrip(trip, io);
-    await notifyBus(bus._id, `trip:${trip._id}:end`, 'TRIP_ENDED', 'Bus trip has ended.', io, { tripId: id(trip._id) }); return { ended: true, trip: driverView(trip) };
+    trip.status = 'completed'; trip.running = false; trip.endedAt = new Date(); trip.endReason = endReason;
+    trip.nextStopIndex = trip.stopSnapshots.length;
+    await trip.save();
+
+    // A lock conflict or a notification failure must not make a saved trip look
+    // active to the driver. The mobile client retries HTTP 423 lock conflicts.
+    try { await syncState(trip); } catch (error) { console.error('End trip state sync failed:', error); }
+    try { await emitTrip(trip, io); } catch (error) { console.error('End trip event emission failed:', error); }
+
+    try {
+      const notifiedParents = new Set();
+      for (const { stop, index } of remaining) {
+        const students = await Student.find({
+          _id: { $in: stop.studentIds }, busId: bus._id, schoolId: trip.schoolId,
+        }).select('_id').lean();
+        if (!students.length) continue;
+        const parents = await Parent.find({ children: { $in: students.map(student => student._id) } }).select('_id').lean();
+        for (const parent of parents) {
+          const parentId = id(parent._id);
+          notifiedParents.add(parentId);
+          const message = `The trip ended before the bus reached ${stop.name}. Your child’s stop was marked skipped. Please contact the driver if you need help.`;
+          try {
+            await notifyParent(parent._id, `trip:${trip._id}:stop:${index}:trip-ended-early`, 'STOP_SKIPPED', message, io, {
+              busId: id(bus._id), tripId: id(trip._id), stopName: stop.name,
+            });
+          } catch (error) { console.error('Skipped-stop notification failed:', error); }
+        }
+      }
+      for (const parent of await busParents(bus._id)) {
+        if (notifiedParents.has(id(parent._id))) continue;
+        try {
+          await notifyParent(parent._id, `trip:${trip._id}:end`, 'TRIP_ENDED', 'Bus trip has ended.', io, { busId: id(bus._id), tripId: id(trip._id) });
+        } catch (error) { console.error('Trip-ended notification failed:', error); }
+      }
+    } catch (error) { console.error('End trip notifications failed:', error); }
+    return { ended: true, trip: driverView(trip) };
   });
 }
 async function skip(driverId, tripId, body, io) {
