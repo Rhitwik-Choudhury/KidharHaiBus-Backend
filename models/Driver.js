@@ -16,6 +16,8 @@ const driverSchema = new mongoose.Schema(
       trim: true,
     },
 
+    phone: { type: String, trim: true, default: null, match: /^\+[1-9]\d{7,14}$/ },
+
     password: {
       type: String,
       required: true,
@@ -70,3 +72,4 @@ const driverSchema = new mongoose.Schema(
 );
 
 module.exports = mongoose.model("Driver", driverSchema);
+

@@ -29,6 +29,8 @@ router.get("/all", auth, require("../services/routeValidation").role("school"), 
 
 // ================= PROTECTED ROUTES =================
 router.get("/me", auth, driverOnly, getDriverProfile);
+router.patch("/me/contact", auth, driverOnly, require("../controllers/driverController").updateDriverContact);
+router.patch("/:driverId/contact", auth, role("school"), require("../controllers/driverController").updateDriverContact);
 router.get("/assigned-bus", auth, driverOnly, getAssignedBus);
 
 router.post("/start-trip", auth, driverOnly, startTrip);
@@ -36,3 +38,4 @@ router.post("/end-trip", auth, driverOnly, endTrip);
 router.post("/location", auth, driverOnly, updateDriverLocation);
 
 module.exports = router;
+

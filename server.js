@@ -118,7 +118,7 @@ app.use(require("./services/routeValidation").errorHandler);
 
 async function startServer() {
   await require("./config/db")();
-  await Promise.all(["PickupRequest", "RouteStop", "RoutePlan", "Trip", "OperationLock", "NotificationReceipt"].map(name => require(`./models/${name}`).init()));
+  await Promise.all(["PickupRequest", "RouteStop", "RoutePlan", "Trip", "OperationLock", "NotificationReceipt", "ParentNotification"].map(name => require(`./models/${name}`).init()));
   const stopWatchdog = require('./services/tripWatchdog').startTripWatchdog(io);
   server.once('close', stopWatchdog);
   const PORT = process.env.PORT || 5000;
@@ -126,3 +126,4 @@ async function startServer() {
 }
 if (require.main === module) startServer().catch(() => { console.error("Backend startup failed"); process.exitCode = 1; });
 module.exports = { app, server, io, startServer };
+

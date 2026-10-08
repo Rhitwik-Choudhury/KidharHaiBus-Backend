@@ -1,8 +1,12 @@
 const Parent = require('../models/Parent');
 const Student = require('../models/Student');
 const Receipt = require('../models/NotificationReceipt');
+const Notification = require('../models/ParentNotification');
 const sendNotification = require('../utils/sendNotification');
 async function notifyParent(parentId, key, type, message, io, data = {}) {
+  // Persist the inbox even when push permission/token is unavailable. Upsert is retry-safe.
+  try { await Notification.updateOne({ parentId, eventKey: key }, { $setOnInsert: { parentId, eventKey: key, type, title: 'Trackefy', message, data } }, { upsert: true }); }
+  catch (error) { if (error.code !== 11000) throw error; }
   try { await Receipt.create({ key: `${key}:${parentId}`, parentId }); }
   catch (error) { if (error.code === 11000) return false; throw error; }
   io?.to(`parent_${parentId}`).emit('alert', { type, message, ...data });
@@ -18,3 +22,4 @@ async function notifyBus(busId, key, type, message, io, data = {}) {
   for (const p of await busParents(busId)) await notifyParent(p._id, key, type, message, io, { busId: String(busId), ...data });
 }
 module.exports = { notifyParent, notifyBus, busParents };
+

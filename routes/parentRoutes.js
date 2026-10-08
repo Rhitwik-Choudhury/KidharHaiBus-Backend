@@ -22,8 +22,11 @@ router.post("/login", loginParent);
 // Protected routes
 router.post('/set-pickup-location', auth, parentOnly, setParentLocation);
 router.get("/me", auth, parentOnly, getMyProfile);
+router.get("/notifications", auth, parentOnly, require("../controllers/parentNotificationController").list);
+router.post("/notifications/read", auth, parentOnly, require("../controllers/parentNotificationController").markRead);
 router.get("/my-bus", auth, parentOnly, getMyBus);
 
 router.post("/save-fcm-token", auth, parentOnly, saveFcmToken);
 
 module.exports = router;
+

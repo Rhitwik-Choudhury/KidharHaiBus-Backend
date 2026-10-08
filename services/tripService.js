@@ -43,7 +43,7 @@ async function readiness(driverId) {
     const preview = direction === 'TO_SCHOOL' ? plan.morningPreview : plan.returnPreview;
     directions[direction] = { stopCount: stops.length, routePolyline: preview?.routePolyline, distanceMeters: preview?.routeDistanceMeters, durationSeconds: preview?.routeDurationSeconds, stops: stops.map(s => ({ name: s.name, location: s.location })), ready: stops.length > 0 };
   }
-  return { ready: Object.values(directions).every(d => d.ready), bus: { id: bus._id, busNumber: bus.busNumber }, version: plan.version, effectiveFrom: plan.effectiveFrom, schoolLocation: plan.schoolLocationSnapshot, directions, activeTripId: active?._id, warning: plan.unresolvedStudents.length ? `${plan.unresolvedStudents.length} students have arrangements outside this route. Preview estimates use the school as the starting point.` : 'Preview estimates use the school as the starting point. The trip route uses your current position.' };
+  return { ready: Object.values(directions).every(d => d.ready), bus: { id: bus._id, busNumber: bus.busNumber }, version: plan.version, publishedAt: plan.publishedAt, effectiveFrom: plan.effectiveFrom, schoolLocation: plan.schoolLocationSnapshot, directions, activeTripId: active?._id, warning: plan.unresolvedStudents.length ? `${plan.unresolvedStudents.length} students have arrangements outside this route. Preview estimates use the school as the starting point.` : 'Preview estimates use the school as the starting point. The trip route uses your current position.' };
 }
 async function calculate(trip, now = new Date()) {
   trip.lastRouteAttemptAt = now;
@@ -112,7 +112,9 @@ function parentView(trip, studentId, now = Date.now()) {
   const stop = trip.stopSnapshots[index];
   const eta = progress.estimates(trip, now);
   const estimate = eta.stops.find(e => e.stopIndex === index);
-  return { ...view, studentId: id(studentId), personal: stop ? { approvedStop: { name: stop.name, location: stop.location }, status: stop.status, estimatedArrival: estimate ? new Date(now + estimate.seconds * 1000) : null, distanceMeters: estimate?.distanceMeters ?? null, stopsBeforeYours: index >= trip.nextStopIndex && estimate ? trip.stopSnapshots.slice(trip.nextStopIndex, index).filter(s => !automation.resolved(s)).length : null, skipReason: stop.status === 'skipped' ? stop.skipReason : null } : null };
+  const next = trip.stopSnapshots[trip.nextStopIndex];
+  const publicStops = trip.stopSnapshots.map(s => ({ routeStopId: id(s.routeStopId), name: s.name, location: s.location, status: s.status }));
+  return { ...view, nextStop: next ? { name: next.name, location: next.location, status: next.status } : null, nextStopEta: eta.stops[0] || null, stops: publicStops, studentId: id(studentId), personal: stop ? { approvedStop: { name: stop.name, location: stop.location }, status: stop.status, estimatedArrival: estimate ? new Date(now + estimate.seconds * 1000) : null, distanceMeters: estimate?.distanceMeters ?? null, stopsBeforeYours: index >= trip.nextStopIndex && estimate ? trip.stopSnapshots.slice(trip.nextStopIndex, index).filter(s => !automation.resolved(s)).length : null, skipReason: stop.status === 'skipped' ? stop.skipReason : null } : null };
 }
 async function emitTrip(trip, io) {
   if (!io) return;

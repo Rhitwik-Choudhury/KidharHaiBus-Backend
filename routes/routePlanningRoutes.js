@@ -69,7 +69,8 @@ parent.post('/pickup-request/:studentId/acknowledge', endpoint(async (req, res) 
 parent.get('/live-trip/:studentId', endpoint(async (req, res) => {
   const { student } = await plan.childForParent(req.user.id, req.params.studentId);
   const trip = await Trip.findOne({ busId: student.busId, schoolId: student.schoolId, status: 'active' });
-  res.json({ trip: trip ? tripService.parentView(trip, student._id) : null, pickup: await plan.pickupState(req.user.id, student._id) });
+  const lastTrip = !trip ? await Trip.findOne({ busId: student.busId, schoolId: student.schoolId, status: 'completed' }).sort({ startedAt: -1 }) : null;
+  res.json({ trip: trip ? tripService.parentView(trip, student._id) : null, lastTrip: lastTrip ? tripService.parentView(lastTrip, student._id) : null, pickup: await plan.pickupState(req.user.id, student._id) });
 }));
 driver.get('/route-readiness', endpoint(async (req, res) => res.json(await tripService.readiness(req.user.id))));
 driver.get('/active-trip', endpoint(async (req, res) => { const trip = await Trip.findOne({ driverId: req.user.id, status: 'active' }); res.json({ trip: trip ? tripService.driverView(trip) : null }); }));
@@ -81,3 +82,4 @@ driver.post('/save-fcm-token', endpoint(async (req, res) => {
   res.json({ saved: true });
 }));
 module.exports = { school, parent, driver };
+

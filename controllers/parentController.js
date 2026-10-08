@@ -184,7 +184,7 @@ exports.getMyProfile = async (req, res) => {
           path: "busId",
           populate: {
             path: "driverId",   // 👈 THIS IS CRITICAL
-            select: "fullName email",
+            select: "fullName phone",
           },
         },
       });
@@ -217,6 +217,7 @@ exports.getMyBus = async (req, res) => {
         path: "busId",
         select:
           "busNumber carNumber route capacity studentCount currentLocation tripStatus lastLocationUpdatedAt driverId",
+        populate: { path: "driverId", select: "fullName phone" },
       },
     });
 

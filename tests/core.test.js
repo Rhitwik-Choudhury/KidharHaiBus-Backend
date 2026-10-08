@@ -129,24 +129,34 @@ test('socket ownership uses school, driver and parent relationships', async () =
   }
 });
 
-test('notification receipt suppresses duplicate parent alerts', async () => {
+test('notification inbox and receipt suppress duplicate parent alerts', async () => {
   const Receipt = require('../models/NotificationReceipt');
   const Parent = require('../models/Parent');
+  const Notification = require('../models/ParentNotification');
   const sendPath = require.resolve('../utils/sendNotification');
   const oldSend = require.cache[sendPath]?.exports;
   let pushes = 0, emits = 0, seen = false;
+  const inbox = new Map();
+  const oldCreate = Receipt.create, oldFind = Parent.findById, oldUpdate = Notification.updateOne;
   require.cache[sendPath] = { id: sendPath, filename: sendPath, loaded: true, exports: async () => { pushes++; } };
-  const oldCreate = Receipt.create, oldFind = Parent.findById;
   Receipt.create = async () => { if (seen) { const error = new Error(); error.code = 11000; throw error; } seen = true; };
+  Notification.updateOne = async (filter, update) => { inbox.set(`${filter.parentId}:${filter.eventKey}`, update.$setOnInsert); };
   Parent.findById = () => ({ select: () => ({ lean: async () => ({ fcmToken: 'test-token' }) }) });
   delete require.cache[require.resolve('../services/routeNotifications')];
-  const { notifyParent } = require('../services/routeNotifications');
-  const io = { to: () => ({ emit: () => { emits++; } }) };
-  assert.equal(await notifyParent('p1', 'trip:t1:eta', 'ETA', 'Soon', io), true);
-  assert.equal(await notifyParent('p1', 'trip:t1:eta', 'ETA', 'Soon', io), false);
-  assert.equal(pushes, 1);
-  assert.equal(emits, 1);
-  Receipt.create = oldCreate;
-  Parent.findById = oldFind;
-  if (oldSend) require.cache[sendPath].exports = oldSend;
+  try {
+    const { notifyParent } = require('../services/routeNotifications');
+    const io = { to: () => ({ emit: () => { emits++; } }) };
+    assert.equal(await notifyParent('p1', 'trip:t1:eta', 'ETA', 'Soon', io), true);
+    assert.equal(await notifyParent('p1', 'trip:t1:eta', 'ETA', 'Soon', io), false);
+    assert.equal(pushes, 1); assert.equal(emits, 1); assert.equal(inbox.size, 1);
+    assert.equal([...inbox.values()][0].message, 'Soon');
+    seen = false;
+    Parent.findById = () => ({ select: () => ({ lean: async () => ({ fcmToken: null }) }) });
+    await notifyParent('p2', 'trip:t1:end', 'TRIP_ENDED', 'Ended', io);
+    assert.equal(inbox.size, 2); assert.equal(pushes, 1);
+  } finally {
+    Receipt.create = oldCreate; Parent.findById = oldFind; Notification.updateOne = oldUpdate;
+    if (oldSend) require.cache[sendPath].exports = oldSend; else delete require.cache[sendPath];
+    delete require.cache[require.resolve('../services/routeNotifications')];
+  }
 });

@@ -6,6 +6,7 @@ const jwt = require("jsonwebtoken");
 
 const { sendOTP } = require("../utils/emailService");
 const Otp = require("../models/Otp");
+const { normalizeDriverPhone } = require("../utils/driverPhone");
 
 // ================= SEND OTP =================
 exports.sendDriverOTP = async (req, res) => {
@@ -40,7 +41,9 @@ exports.sendDriverOTP = async (req, res) => {
 
 // ================= REGISTER DRIVER =================
 exports.registerDriver = async (req, res) => {
-  const { fullName, email, password, driverCode, otp } = req.body;
+  const { fullName, email, password, driverCode, otp, phone } = req.body;
+  const cleanPhone = normalizeDriverPhone(phone);
+  if (!cleanPhone) return res.status(400).json({ message: "Enter a valid driver phone number, including country code for non-Indian numbers." });
 
   try {
     const emailNormalized = email.trim().toLowerCase();
@@ -81,6 +84,7 @@ exports.registerDriver = async (req, res) => {
 
     const newDriver = new Driver({
       fullName,
+      phone: cleanPhone,
       email: emailNormalized,
       password: hashedPassword,
       driverCode: enteredSchoolCode,
@@ -129,6 +133,7 @@ exports.loginDriver = async (req, res) => {
         id: driver._id,
         fullName: driver.fullName,
         email: driver.email,
+        phone: driver.phone || null,
         driverCode: driver.driverCode,
         schoolId: driver.schoolId,
         busId: driver.busId?._id || null,
@@ -170,12 +175,17 @@ exports.getDriverProfile = async (req, res) => {
       return res.status(404).json({ message: "Driver not found" });
     }
 
+    // The trip record is authoritative even if a post-end display sync failed.
+    const activeTrip = await require('../models/Trip').exists({ driverId, status: 'active' });
+    driver.isOnTrip = !!activeTrip;
+
     res.status(200).json({
       message: "Driver profile fetched successfully",
       driver: {
         _id: driver._id,
         fullName: driver.fullName,
         email: driver.email,
+        phone: driver.phone || null,
         schoolId: driver.schoolId,
         isOnTrip: driver.isOnTrip,
         lastLocation: driver.lastLocation,
@@ -260,3 +270,17 @@ exports.getAllDrivers = async (req, res) => {
     res.status(500).json({ message: "Server Error" });
   }
 };
+
+
+// Drivers may update only their own contact; schools may update their own drivers.
+exports.updateDriverContact = endpoint(async (req, res) => {
+  const { assert, validId } = require('../services/routeValidation');
+  const phone = normalizeDriverPhone(req.body.phone);
+  assert(phone, 'Enter a valid phone number. Use a country code for non-Indian numbers.');
+  const driverId = req.user.role === 'school' ? req.params.driverId : req.user.id;
+  assert(validId(driverId), 'Invalid driver ID');
+  const query = { _id: driverId, ...(req.user.role === 'school' ? { schoolId: req.user.id } : {}) };
+  const driver = await Driver.findOneAndUpdate(query, { $set: { phone } }, { new: true, runValidators: true }).select('_id fullName phone');
+  assert(driver, 'Driver not found', 404);
+  res.json({ message: 'Contact number updated', driver });
+});
