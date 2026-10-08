@@ -22,10 +22,20 @@ const schema = new mongoose.Schema({
   lastLocationUpdatedAt: Date, lastDeviceTimestamp: Date,
   accuracy: Number, speed: Number, heading: Number,
   terminalEta: Date, endReason: String,
+  routeWorkVersion: { type: Number, default: 0 },
+  routeWorkPending: { type: Boolean, default: false },
+  startNoticePending: { type: Boolean, default: false },
+  finishNoticePending: { type: Boolean, default: false },
+  endNoticePending: { type: Boolean, default: false },
   finishSince: Date, finishAnchor: coordinate, finishCandidateAt: Date,
   finishReminderAt: Date, finishSnoozedUntil: Date,
 }, { timestamps: true, optimisticConcurrency: true });
 schema.index({ busId: 1 }, { unique: true, partialFilterExpression: { running: true } });
 schema.index({ driverId: 1 }, { unique: true, partialFilterExpression: { running: true } });
 schema.index({ schoolId: 1, status: 1, startedAt: -1 });
+schema.index({ status: 1, routeWorkPending: 1 });
+schema.index({ startNoticePending: 1 }, { partialFilterExpression: { startNoticePending: true } });
+schema.index({ finishNoticePending: 1 }, { partialFilterExpression: { finishNoticePending: true } });
+schema.index({ endNoticePending: 1 }, { partialFilterExpression: { endNoticePending: true } });
 module.exports = mongoose.model('Trip', schema);
+

@@ -148,12 +148,13 @@ test('notification inbox and receipt suppress duplicate parent alerts', async ()
     const io = { to: () => ({ emit: () => { emits++; } }) };
     assert.equal(await notifyParent('p1', 'trip:t1:eta', 'ETA', 'Soon', io), true);
     assert.equal(await notifyParent('p1', 'trip:t1:eta', 'ETA', 'Soon', io), false);
-    assert.equal(pushes, 1); assert.equal(emits, 1); assert.equal(inbox.size, 1);
+    assert.equal(pushes, 0); assert.equal(emits, 1); assert.equal(inbox.size, 1);
     assert.equal([...inbox.values()][0].message, 'Soon');
+    assert.equal([...inbox.values()][0].pushPending, true);
     seen = false;
     Parent.findById = () => ({ select: () => ({ lean: async () => ({ fcmToken: null }) }) });
     await notifyParent('p2', 'trip:t1:end', 'TRIP_ENDED', 'Ended', io);
-    assert.equal(inbox.size, 2); assert.equal(pushes, 1);
+    assert.equal(inbox.size, 2); assert.equal(pushes, 0);
   } finally {
     Receipt.create = oldCreate; Parent.findById = oldFind; Notification.updateOne = oldUpdate;
     if (oldSend) require.cache[sendPath].exports = oldSend; else delete require.cache[sendPath];

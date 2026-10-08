@@ -10,7 +10,6 @@ const { computeRoute } = require('./googleRoutes');
 const { encode, decode, stitch } = require('./routeGeometry');
 const progress = require('./tripProgress');
 const automation = require('./tripAutomation');
-const { notifyDriver } = require('./driverTripNotifications');
 const { notifyParent, notifyBus, busParents } = require('./routeNotifications');
 async function assigned(driverId) {
   const driver = await Driver.findById(driverId);
@@ -21,6 +20,7 @@ async function assigned(driverId) {
 async function currentSnapshot(plan, direction, bus) {
   const ordered = direction === 'FROM_SCHOOL' ? plan.returnSnapshots : plan.morningSnapshots;
   const students = await Student.find({ schoolId: bus.schoolId, busId: bus._id }).lean();
+  const parents = await Parent.find({ children: { $in: students.map(student => student._id) } }).select('_id children').lean();
   const now = new Date();
   const snapshots = [];
   for (const original of ordered) {
@@ -28,7 +28,7 @@ async function currentSnapshot(plan, direction, bus) {
     if (stop.expiresAt && new Date(stop.expiresAt) <= now) continue;
     const members = stop.studentIds.filter(sid => students.some(s => id(s._id) === id(sid) && isRiding(s, now)));
     if (!members.length) continue;
-    snapshots.push({ ...stop, sequence: snapshots.length, status: 'pending', studentIds: members, students: stop.students.filter(s => members.some(sid => id(sid) === id(s.id))), parentIds: await planning.parentIdsFor(members) });
+    snapshots.push({ ...stop, sequence: snapshots.length, status: 'pending', studentIds: members, students: stop.students.filter(s => members.some(sid => id(sid) === id(s.id))), parentIds: parents.filter(parent => parent.children.some(child => members.some(member => id(member) === id(child)))).map(parent => parent._id) });
   }
   return snapshots;
 }
@@ -82,14 +82,16 @@ async function start(driverId, input = {}, io) {
     const location = input.location ? coordinates(input.location) : null;
     if (mode === 'route') assert(location, 'Wait for your current GPS location before starting');
     const trip = await Trip.create({ schoolId: bus.schoolId, busId: bus._id, driverId, routePlanId: mode === 'route' ? plan._id : null, routePlanVersion: mode === 'route' ? plan.version : null, direction, mode, fallbackReason: mode === 'legacy' ? 'Compatibility with an earlier app version' : text(input.fallbackReason), stopSnapshots: stops, schoolLocationSnapshot: plan?.schoolLocationSnapshot, currentLocation: location || undefined });
-    try { if (mode === 'route') await calculate(trip); }
-    catch (error) { trip.status = 'cancelled'; trip.running = false; trip.endedAt = new Date(); await trip.save(); throw error; }
     trip.status = 'active'; trip.startedAt = new Date();
+    trip.routeWorkPending = mode === 'route'; trip.routeWorkVersion = 1;
+    trip.routeState = mode === 'route' ? 'rerouting' : 'unavailable';
+    trip.lastRouteAttemptAt = new Date();
+    trip.startNoticePending = true;
     if (location) { trip.lastLocationUpdatedAt = new Date(); trip.displayLocation = location; }
     await trip.save();
     await syncState(trip);
-    await emitTrip(trip, io);
-    await notifyBus(bus._id, `trip:${trip._id}:start`, 'TRIP_STARTED', mode === 'route' ? `Bus has started ${direction === 'TO_SCHOOL' ? 'morning pickup' : 'return drop-off'}.` : 'Bus has started live tracking. Pickup ETAs are unavailable for this trip.', io, { tripId: id(trip._id) });
+    // The persisted work flags survive restarts. Neither Google nor FCM is
+    // needed to confirm activation to the driver.
     return { trip: driverView(trip), driver: { isOnTrip: true }, bus: { tripStatus: 'started' } };
   });
 }
@@ -168,9 +170,7 @@ async function location(driverId, input, io) {
     const changed = event?.type === 'completed' || skipped.length > 0;
     if (changed) await rebuildAfterStops(trip, io, completedRoad);
     else if (progress.shouldRefresh(trip)) {
-      trip.routeState = 'rerouting'; await trip.save(); await emitTrip(trip, io);
-      try { await calculate(trip); }
-      catch { trip.routeState = trip.routePolyline ? 'cached' : 'unavailable'; }
+      trip.routeState = 'rerouting'; trip.routeWorkPending = true; trip.routeWorkVersion = (trip.routeWorkVersion || 0) + 1; trip.lastRouteAttemptAt = new Date();
     }
     const eta = progress.estimates(trip);
     for (const stop of trip.stopSnapshots) stop.estimatedArrival = null;
@@ -200,39 +200,14 @@ async function end(driverId, body, io) {
     trip.finishCandidateAt = null; trip.finishSnoozedUntil = null;
     trip.status = 'completed'; trip.running = false; trip.endedAt = new Date(); trip.endReason = endReason;
     trip.nextStopIndex = trip.stopSnapshots.length;
+    trip.routeWorkPending = false; trip.endNoticePending = true; trip.finishNoticePending = false;
     await trip.save();
 
     // A lock conflict or a notification failure must not make a saved trip look
     // active to the driver. The mobile client retries HTTP 423 lock conflicts.
     try { await syncState(trip); } catch (error) { console.error('End trip state sync failed:', error); }
-    try { await emitTrip(trip, io); } catch (error) { console.error('End trip event emission failed:', error); }
+    // The worker publishes the completed state and delivers parent alerts.
 
-    try {
-      const notifiedParents = new Set();
-      for (const { stop, index } of remaining) {
-        const students = await Student.find({
-          _id: { $in: stop.studentIds }, busId: bus._id, schoolId: trip.schoolId,
-        }).select('_id').lean();
-        if (!students.length) continue;
-        const parents = await Parent.find({ children: { $in: students.map(student => student._id) } }).select('_id').lean();
-        for (const parent of parents) {
-          const parentId = id(parent._id);
-          notifiedParents.add(parentId);
-          const message = `The trip ended before the bus reached ${stop.name}. Your child’s stop was marked skipped. Please contact the driver if you need help.`;
-          try {
-            await notifyParent(parent._id, `trip:${trip._id}:stop:${index}:trip-ended-early`, 'STOP_SKIPPED', message, io, {
-              busId: id(bus._id), tripId: id(trip._id), stopName: stop.name,
-            });
-          } catch (error) { console.error('Skipped-stop notification failed:', error); }
-        }
-      }
-      for (const parent of await busParents(bus._id)) {
-        if (notifiedParents.has(id(parent._id))) continue;
-        try {
-          await notifyParent(parent._id, `trip:${trip._id}:end`, 'TRIP_ENDED', 'Bus trip has ended.', io, { busId: id(bus._id), tripId: id(trip._id) });
-        } catch (error) { console.error('Trip-ended notification failed:', error); }
-      }
-    } catch (error) { console.error('End trip notifications failed:', error); }
     return { ended: true, trip: driverView(trip) };
   });
 }
@@ -255,22 +230,24 @@ async function rebuildAfterStops(trip, io, completedRoad) {
   trip.routeLegs = []; trip.routePolyline = ''; trip.terminalEta = null;
   trip.routeState = 'rerouting';
   for (const stop of trip.stopSnapshots) stop.estimatedArrival = null;
-  // Publish the new stop status before waiting for Google, without an old ETA
-  // or route that points back to the skipped waypoint.
-  await trip.save(); await emitTrip(trip, io);
-  if (trip.direction === 'FROM_SCHOOL' && trip.stopSnapshots.every(automation.resolved)) { trip.routeState = 'ready'; return; }
-  try { await calculate(trip); } catch { trip.routeState = 'unavailable'; }
+  // Clear old ETAs before the queued route is calculated.
+  const finished = trip.direction === 'FROM_SCHOOL' && trip.stopSnapshots.every(automation.resolved);
+  trip.routeWorkPending = !finished;
+  trip.routeWorkVersion = (trip.routeWorkVersion || 0) + 1;
+  trip.lastRouteAttemptAt = new Date();
+  if (finished) trip.routeState = 'ready';
+
 }
 async function sendFinishReminder(trip, io) {
   if (!automation.reminderDue(trip)) return;
-  trip.finishReminderAt = new Date(); await trip.save();
-  await notifyDriver(trip, automation.reminderView(trip).message, io);
+  trip.finishReminderAt = new Date(); trip.finishNoticePending = true; await trip.save();
 }
 async function snooze(driverId, tripId, io) {
   const { bus } = await assigned(driverId);
   return withLock(`trip:${bus._id}`, async () => {
     const trip = await Trip.findOne({ _id: tripId, busId: bus._id, driverId, status: 'active' });
     assert(trip && trip.finishCandidateAt, 'No active trip reminder', 409);
+    trip.finishNoticePending = false;
     trip.finishSnoozedUntil = new Date(Date.now() + 300000); await trip.save(); await emitTrip(trip, io);
     return driverView(trip);
   });
@@ -288,3 +265,23 @@ async function tickTrip(tripId, io) {
   });
 }
 module.exports = { assigned, readiness, start, end, skip, snooze, tickTrip, location, commonView, driverView, parentView, emitTrip, currentSnapshot, calculate };
+
+async function deliverEndNotices(trip, io) {
+  const remaining = trip.stopSnapshots.map((stop, index) => ({ stop, index })).filter(({ stop }) => stop.skipSource === 'trip_end');
+  const notifiedParents = new Set();
+  for (const { stop, index } of remaining) {
+    const students = await Student.find({ _id: { $in: stop.studentIds }, busId: trip.busId, schoolId: trip.schoolId }).select('_id').lean();
+    if (!students.length) continue;
+    const parents = await Parent.find({ children: { $in: students.map(student => student._id) } }).select('_id').lean();
+    for (const parent of parents) {
+      notifiedParents.add(id(parent._id));
+      const message = `The trip ended before the bus reached ${stop.name}. Your child’s stop was marked skipped. Please contact the driver if you need help.`;
+      await notifyParent(parent._id, `trip:${trip._id}:stop:${index}:trip-ended-early`, 'STOP_SKIPPED', message, io, { busId: id(trip.busId), tripId: id(trip._id), stopName: stop.name });
+    }
+  }
+  for (const parent of await busParents(trip.busId)) {
+    if (!notifiedParents.has(id(parent._id))) await notifyParent(parent._id, `trip:${trip._id}:end`, 'TRIP_ENDED', 'Bus trip has ended.', io, { busId: id(trip.busId), tripId: id(trip._id) });
+  }
+}
+module.exports.deliverEndNotices = deliverEndNotices;
+module.exports.syncState = syncState;

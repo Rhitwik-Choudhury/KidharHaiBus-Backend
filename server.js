@@ -120,7 +120,8 @@ async function startServer() {
   await require("./config/db")();
   await Promise.all(["PickupRequest", "RouteStop", "RoutePlan", "Trip", "OperationLock", "NotificationReceipt", "ParentNotification"].map(name => require(`./models/${name}`).init()));
   const stopWatchdog = require('./services/tripWatchdog').startTripWatchdog(io);
-  server.once('close', stopWatchdog);
+  const stopWorkQueue = require('./services/tripWorkQueue').startTripWorkQueue(io);
+  server.once('close', () => { stopWatchdog(); stopWorkQueue(); });
   const PORT = process.env.PORT || 5000;
   return server.listen(PORT, "0.0.0.0", () => console.log(`Server running on ${PORT}`));
 }

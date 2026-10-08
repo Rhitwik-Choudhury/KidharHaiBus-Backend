@@ -115,25 +115,27 @@ function serviceHarness(trip, fail = false) {
   vm.runInNewContext(fs.readFileSync(filename, 'utf8'), { module, exports: module.exports, console, Date, structuredClone, require: name => stubs[name] || require(path.join(__dirname, '../services', name)) }, { filename });
   return { service: module.exports, calls };
 }
-test('manual skip immediately removes the old waypoint and its ETA', async () => {
+test('manual skip removes old waypoint and queues a route without holding the lock', async () => {
   const trip = fixture(); trip.lastLocationUpdatedAt = new Date(); trip.routeCalculatedAt = new Date();
   const { service, calls } = serviceHarness(trip);
   const view = await service.skip('driver', 'trip', { stopIndex: 0, reason: 'No passenger' });
   assert.equal(view.nextStopIndex, 1); assert.equal(view.nextStop.name, 'Stop 1');
-  assert.equal(calls.length, 1); assert.equal(calls[0].length, 2); assert.equal(calls[0][1].lng, 91.004);
-  assert.equal(trip.routeLegs[0].stopIndex, 1); assert.ok(view.nextStopEta.seconds > 59 && view.nextStopEta.seconds <= 60);
+  assert.equal(calls.length, 0); assert.equal(trip.routeWorkPending, true); assert.equal(view.nextStopEta, null);
+  await service.calculate(trip);
+  assert.equal(calls[0][1].lng, 91.004); assert.equal(trip.routeLegs[0].stopIndex, 1);
 });
 test('a failed skip reroute clears misleading old routes and ETAs', async () => {
   const trip = fixture(); trip.lastLocationUpdatedAt = new Date();
   const { service } = serviceHarness(trip, true);
   const view = await service.skip('driver', 'trip', { stopIndex: 0, reason: 'No passenger' });
-  assert.equal(view.routeState, 'unavailable'); assert.equal(view.remainingPolyline, ''); assert.equal(view.nextStopEta, null); assert.equal(view.terminalEta, null);
+  assert.equal(view.routeState, 'rerouting'); assert.equal(trip.routeWorkPending, true); assert.equal(view.remainingPolyline, ''); assert.equal(view.nextStopEta, null); assert.equal(view.terminalEta, null);
 });
 test('persisted overdue auto-skip runs after worker restart and rebuilds the route', async () => {
   const trip = passed(); trip.stopSnapshots[0].autoSkipAt = new Date(Date.now() - 1000); trip.lastDeviceTimestamp = new Date(); trip.lastLocationUpdatedAt = new Date();
   const { service, calls } = serviceHarness(trip);
   await service.tickTrip('trip');
-  assert.equal(trip.stopSnapshots[0].status, 'skipped'); assert.equal(trip.nextStopIndex, 1); assert.equal(calls[0][1].lng, 91.004);
+  assert.equal(trip.stopSnapshots[0].status, 'skipped'); assert.equal(trip.nextStopIndex, 1); assert.equal(calls.length, 0); assert.equal(trip.routeWorkPending, true);
+  await service.calculate(trip); assert.equal(calls[0][1].lng, 91.004);
 });
 test('completed future stops are excluded and leg indices retain snapshot identity', async () => {
   const trip = fixture(); trip.stopSnapshots[1].status = 'completed'; trip.direction = 'TO_SCHOOL'; trip.schoolLocationSnapshot = point(91.01);
@@ -164,3 +166,4 @@ test('return reminders require final-stop resolution and stationary evidence', (
   assert.equal(+trip.finishCandidateAt, now + 63000);
   assert.ok(automation.reminderDue(trip, now + 63000));
 });
+

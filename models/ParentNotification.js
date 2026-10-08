@@ -6,9 +6,12 @@ const schema = new mongoose.Schema({
   title: { type: String, default: 'Trackefy' },
   message: { type: String, required: true },
   data: { type: mongoose.Schema.Types.Mixed, default: {} },
+  pushPending: { type: Boolean, default: false },
+  pushRetryAt: Date,
   readAt: { type: Date, default: null },
 }, { timestamps: true });
 schema.index({ parentId: 1, eventKey: 1 }, { unique: true });
 schema.index({ parentId: 1, createdAt: -1 });
 schema.index({ parentId: 1, readAt: 1 });
+schema.index({ pushPending: 1, pushRetryAt: 1 });
 module.exports = mongoose.model('ParentNotification', schema);

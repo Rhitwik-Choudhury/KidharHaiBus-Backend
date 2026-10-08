@@ -1,11 +1,12 @@
 const admin = require("../config/firebase");
 
-const sendNotification = async (token, title, body, data = {}) => {
+const sendNotification = async (token, title, body, data = {}, options = {}) => {
   try {
     if (!admin) {
       console.log(
         "Firebase not initialized, skipping notification"
       );
+      if (options.throwOnError) throw new Error('Firebase is not initialized');
       return;
     }
 
@@ -48,6 +49,10 @@ const sendNotification = async (token, title, body, data = {}) => {
     await admin.messaging().send(message);
 
   } catch (err) {
+    if (options.throwOnError) {
+      if (['messaging/registration-token-not-registered', 'messaging/invalid-registration-token'].includes(err.code)) return;
+      throw err;
+    }
     console.error("FCM Error:", {
       code: err.code,
       message: err.message,
